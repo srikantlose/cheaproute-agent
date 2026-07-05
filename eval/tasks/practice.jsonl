@@ -1,0 +1,80 @@
+{"id": "math-01", "type": "math", "task": "What is 17 + 25?", "expected": "42", "grader": "numeric"}
+{"id": "math-02", "type": "math", "task": "What is 144 divided by 12?", "expected": "12", "grader": "numeric"}
+{"id": "math-03", "type": "math", "task": "Calculate 23 * 17.", "expected": "391", "grader": "numeric"}
+{"id": "math-04", "type": "math", "task": "A shirt costs $40 and is discounted by 25%. What is the final price in dollars?", "expected": "30", "grader": "numeric"}
+{"id": "math-05", "type": "math", "task": "A train travels at 60 km/h for 2.5 hours. How many kilometers does it cover?", "expected": "150", "grader": "numeric"}
+{"id": "math-06", "type": "math", "task": "What is the sum of the first 10 positive integers?", "expected": "55", "grader": "numeric"}
+{"id": "math-07", "type": "math", "task": "What is 15% of 240?", "expected": "36", "grader": "numeric"}
+{"id": "math-08", "type": "math", "task": "If 3x + 7 = 25, what is x?", "expected": "6", "grader": "numeric"}
+{"id": "math-09", "type": "math", "task": "What is the area of a rectangle that is 8 meters long and 5 meters wide, in square meters?", "expected": "40", "grader": "numeric"}
+{"id": "math-10", "type": "math", "task": "A dozen eggs costs $3. How many dollars do 36 eggs cost?", "expected": "9", "grader": "numeric"}
+{"id": "math-11", "type": "math", "task": "What is 2 to the power of 10?", "expected": "1024", "grader": "numeric"}
+{"id": "math-12", "type": "math", "task": "What is the average of 4, 8, 15, 16, 23 and 42?", "expected": "18", "grader": "numeric"}
+{"id": "math-13", "type": "math", "task": "What is 7! divided by 5! ?", "expected": "42", "grader": "numeric"}
+{"id": "math-14", "type": "math", "task": "What is the square root of 169?", "expected": "13", "grader": "numeric"}
+{"id": "math-15", "type": "math", "task": "Alice has 3 times as many apples as Bob. Together they have 48 apples. How many apples does Alice have?", "expected": "36", "grader": "numeric"}
+{"id": "mc-01", "type": "multiple_choice", "task": "Which is the largest planet in our solar system? A) Earth B) Jupiter C) Mars D) Venus. Answer with the letter.", "expected": "B", "expected_text": "Jupiter", "grader": "mc"}
+{"id": "mc-02", "type": "multiple_choice", "task": "What is the chemical symbol for gold? A) Au B) Ag C) Gd D) Go. Answer with the letter.", "expected": "A", "expected_text": "Au", "grader": "mc"}
+{"id": "mc-03", "type": "multiple_choice", "task": "Which of these numbers is prime? A) 21 B) 33 C) 37 D) 39. Answer with the letter.", "expected": "C", "expected_text": "37", "grader": "mc"}
+{"id": "mc-04", "type": "multiple_choice", "task": "What is the capital of Australia? A) Sydney B) Melbourne C) Canberra D) Perth. Answer with the letter.", "expected": "C", "expected_text": "Canberra", "grader": "mc"}
+{"id": "mc-05", "type": "multiple_choice", "task": "H2O is the chemical formula for what? A) Water B) Hydrogen peroxide C) Salt D) Ozone. Answer with the letter.", "expected": "A", "expected_text": "Water", "grader": "mc"}
+{"id": "mc-06", "type": "multiple_choice", "task": "The speed of light in a vacuum is approximately: A) 300 km/s B) 300,000 km/s C) 3,000 km/s D) 30,000 km/s. Answer with the letter.", "expected": "B", "expected_text": "300,000 km/s", "grader": "mc"}
+{"id": "mc-07", "type": "multiple_choice", "task": "Who wrote the novel 1984? A) Aldous Huxley B) George Orwell C) Ray Bradbury D) Franz Kafka. Answer with the letter.", "expected": "B", "expected_text": "Orwell", "grader": "mc"}
+{"id": "mc-08", "type": "multiple_choice", "task": "Which language runs natively in web browsers? A) Python B) C++ C) JavaScript D) Rust. Answer with the letter.", "expected": "C", "expected_text": "JavaScript", "grader": "mc"}
+{"id": "mc-09", "type": "multiple_choice", "task": "What is the smallest prime number? A) 0 B) 1 C) 2 D) 3. Answer with the letter.", "expected": "C", "expected_text": "2", "grader": "mc"}
+{"id": "mc-10", "type": "multiple_choice", "task": "Photosynthesis primarily produces which gas? A) Carbon dioxide B) Oxygen C) Nitrogen D) Methane. Answer with the letter.", "expected": "B", "expected_text": "Oxygen", "grader": "mc"}
+{"id": "mc-11", "type": "multiple_choice", "task": "What is 5 in binary? A) 101 B) 110 C) 100 D) 111. Answer with the letter.", "expected": "A", "expected_text": "101", "grader": "mc"}
+{"id": "mc-12", "type": "multiple_choice", "task": "Which planet is known as the Red Planet? A) Venus B) Mars C) Jupiter D) Mercury. Answer with the letter.", "expected": "B", "expected_text": "Mars", "grader": "mc"}
+{"id": "mc-13", "type": "multiple_choice", "task": "Which HTTP status code means Not Found? A) 200 B) 301 C) 404 D) 500. Answer with the letter.", "expected": "C", "expected_text": "404", "grader": "mc"}
+{"id": "mc-14", "type": "multiple_choice", "task": "Which is the largest ocean on Earth? A) Atlantic B) Indian C) Arctic D) Pacific. Answer with the letter.", "expected": "D", "expected_text": "Pacific", "grader": "mc"}
+{"id": "mc-15", "type": "multiple_choice", "task": "In which year did World War II end? A) 1943 B) 1944 C) 1945 D) 1946. Answer with the letter.", "expected": "C", "expected_text": "1945", "grader": "mc"}
+{"id": "qa-01", "type": "factual_qa", "task": "What is the capital of France?", "expected": "Paris", "grader": "exact"}
+{"id": "qa-02", "type": "factual_qa", "task": "What is the chemical formula for table salt?", "expected": "NaCl", "grader": "contains"}
+{"id": "qa-03", "type": "factual_qa", "task": "Who painted the Mona Lisa?", "expected": ["da Vinci", "Leonardo"], "grader": "contains"}
+{"id": "qa-04", "type": "factual_qa", "task": "Which planet is closest to the Sun?", "expected": "Mercury", "grader": "exact"}
+{"id": "qa-05", "type": "factual_qa", "task": "How many continents are there on Earth?", "expected": "7", "grader": "numeric"}
+{"id": "qa-06", "type": "factual_qa", "task": "What is the largest mammal on Earth?", "expected": "blue whale", "grader": "contains"}
+{"id": "qa-07", "type": "factual_qa", "task": "What is the currency of Japan?", "expected": "yen", "grader": "contains"}
+{"id": "qa-08", "type": "factual_qa", "task": "Who wrote Romeo and Juliet?", "expected": "Shakespeare", "grader": "contains"}
+{"id": "qa-09", "type": "factual_qa", "task": "At sea level, what is the boiling point of water in degrees Celsius?", "expected": "100", "grader": "numeric"}
+{"id": "qa-10", "type": "factual_qa", "task": "Who was the first person to walk on the Moon?", "expected": "Armstrong", "grader": "contains"}
+{"id": "qa-11", "type": "factual_qa", "task": "How many sides does a hexagon have?", "expected": "6", "grader": "numeric"}
+{"id": "qa-12", "type": "factual_qa", "task": "What is the fastest land animal?", "expected": "cheetah", "grader": "contains"}
+{"id": "qa-13", "type": "factual_qa", "task": "How many days are there in a leap year?", "expected": "366", "grader": "numeric"}
+{"id": "qa-14", "type": "factual_qa", "task": "What gas do plants primarily absorb from the atmosphere for photosynthesis?", "expected": ["carbon dioxide", "CO2"], "grader": "contains"}
+{"id": "qa-15", "type": "factual_qa", "task": "What is the capital of Japan?", "expected": "Tokyo", "grader": "exact"}
+{"id": "ext-01", "type": "extraction", "task": "Extract the order number from this text: 'Order #4521 was shipped to 42 Elm Street on March 3rd.' Reply with just the number.", "expected": "4521", "grader": "numeric"}
+{"id": "ext-02", "type": "extraction", "task": "Extract the email address from: 'Please contact john.doe@example.com for further details about the meeting.'", "expected": "john.doe@example.com", "grader": "contains"}
+{"id": "ext-03", "type": "extraction", "task": "Extract the phone number from: 'Call us at 555-0142 between 9am and 5pm on weekdays.'", "expected": "555-0142", "grader": "contains"}
+{"id": "ext-04", "type": "extraction", "task": "Extract the date in YYYY-MM-DD format from: 'The invoice was issued on 2021-07-14 and is due in 30 days.'", "expected": "2021-07-14", "grader": "contains"}
+{"id": "ext-05", "type": "extraction", "task": "Extract the price from: 'The wireless mouse is on sale for $19.99 this week only.' Reply with just the number.", "expected": "19.99", "grader": "numeric"}
+{"id": "ext-06", "type": "extraction", "task": "Extract the person's full name from: 'The report was submitted by Maria Lopez, senior analyst at the firm.'", "expected": "Maria Lopez", "grader": "contains"}
+{"id": "ext-07", "type": "extraction", "task": "Extract the city from: 'The conference will be held in Denver next spring, near the convention center.'", "expected": "Denver", "grader": "contains"}
+{"id": "ext-08", "type": "extraction", "task": "What product is being reviewed? 'I bought this wireless mouse last month and the battery life is amazing.'", "expected": "wireless mouse", "grader": "contains"}
+{"id": "ext-09", "type": "extraction", "task": "Extract the percentage from: 'Revenue grew by 12% compared to the previous quarter.' Reply with just the number.", "expected": "12", "grader": "numeric"}
+{"id": "ext-10", "type": "extraction", "task": "Extract the year from: 'The company was founded in 1998 by two college roommates.' Reply with just the year.", "expected": "1998", "grader": "numeric"}
+{"id": "cls-01", "type": "classification", "task": "Classify the sentiment of this review as positive or negative: 'This movie was an absolute masterpiece, I was captivated from start to finish.'", "expected": "positive", "grader": "contains"}
+{"id": "cls-02", "type": "classification", "task": "Classify the sentiment of this review as positive or negative: 'Terrible service, cold food, and rude staff. Never coming back.'", "expected": "negative", "grader": "contains"}
+{"id": "cls-03", "type": "classification", "task": "Is this message spam or not spam? 'CONGRATULATIONS! You WON $1,000,000! Click this link NOW to claim your prize!!!'", "expected": "spam", "grader": "contains"}
+{"id": "cls-04", "type": "classification", "task": "Classify the topic of this headline as sports, politics, or technology: 'The Lakers clinched the playoff spot with a buzzer-beater last night.'", "expected": "sports", "grader": "contains"}
+{"id": "cls-05", "type": "classification", "task": "What language is this sentence written in? 'Bonjour, comment ça va aujourd'hui?'", "expected": "French", "grader": "contains"}
+{"id": "cls-06", "type": "classification", "task": "Is an oak a plant or an animal?", "expected": "plant", "grader": "contains"}
+{"id": "cls-07", "type": "classification", "task": "Is the number 7 odd or even?", "expected": "odd", "grader": "contains"}
+{"id": "cls-08", "type": "classification", "task": "Classify this email opening as formal or informal: 'Hey dude, wanna grab pizza after the standup?'", "expected": "informal", "grader": "contains"}
+{"id": "cls-09", "type": "classification", "task": "Is this statement a fact or an opinion? 'Vanilla is the best ice cream flavor.'", "expected": "opinion", "grader": "contains"}
+{"id": "cls-10", "type": "classification", "task": "What category do Python, Java, and C++ belong to?", "expected": ["programming language", "programming languages"], "grader": "contains"}
+{"id": "logic-01", "type": "logic", "task": "Mary's father has five daughters: Nana, Nene, Nini, Nono, and who is the fifth?", "expected": "Mary", "grader": "contains"}
+{"id": "logic-02", "type": "logic", "task": "If all Bloops are Razzies and all Razzies are Lazzies, are all Bloops definitely Lazzies? Answer yes or no.", "expected": "yes", "grader": "contains"}
+{"id": "logic-03", "type": "logic", "task": "If tomorrow is Wednesday, what day was the day before yesterday?", "expected": "Sunday", "grader": "contains"}
+{"id": "logic-04", "type": "logic", "task": "A farmer has 17 sheep. All but 9 run away. How many sheep are left?", "expected": "9", "grader": "numeric"}
+{"id": "logic-05", "type": "logic", "task": "Which is heavier: a kilogram of feathers or a kilogram of steel?", "expected": ["same", "equal", "neither"], "grader": "contains"}
+{"id": "logic-06", "type": "logic", "task": "What is the next number in the sequence 2, 4, 8, 16?", "expected": "32", "grader": "numeric"}
+{"id": "logic-07", "type": "logic", "task": "What is the next number in the sequence 1, 1, 2, 3, 5, 8?", "expected": "13", "grader": "numeric"}
+{"id": "logic-08", "type": "logic", "task": "Tom is taller than Sam. Sam is taller than Jim. Who is the shortest of the three?", "expected": "Jim", "grader": "contains"}
+{"id": "logic-09", "type": "logic", "task": "If it takes 5 machines 5 minutes to make 5 widgets, how many minutes does it take 100 machines to make 100 widgets?", "expected": "5", "grader": "numeric"}
+{"id": "logic-10", "type": "logic", "task": "A red house is made of red bricks and a blue house is made of blue bricks. What is a greenhouse made of?", "expected": "glass", "grader": "contains"}
+{"id": "lang-01", "type": "language", "task": "Translate 'Good morning' into French.", "expected": "bonjour", "grader": "contains"}
+{"id": "lang-02", "type": "language", "task": "What is the antonym of 'hot'?", "expected": "cold", "grader": "contains"}
+{"id": "lang-03", "type": "language", "task": "Give one synonym for 'happy'.", "expected": ["glad", "joyful", "cheerful", "content", "joyous", "delighted", "pleased", "elated"], "grader": "contains"}
+{"id": "lang-04", "type": "language", "task": "What is the plural of 'child'?", "expected": "children", "grader": "contains"}
+{"id": "lang-05", "type": "language", "task": "What is the past tense of 'go'?", "expected": "went", "grader": "contains"}
