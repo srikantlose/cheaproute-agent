@@ -35,12 +35,19 @@ def parse_task(payload: Any) -> Optional[Task]:
 
     if isinstance(payload, dict):
         text = None
+        saw_text_key = False
         for key in _TEXT_KEYS:
+            if key in payload:
+                saw_text_key = True
             val = payload.get(key)
             if isinstance(val, str) and val.strip():
                 text = val.strip()
                 break
         if text is None:
+            if saw_text_key:
+                # A recognized task field exists but is empty — there is
+                # genuinely nothing to answer.
+                return None
             # Unknown schema: serialize the whole object as the task text so
             # the models at least see everything the scorer sent.
             text = json.dumps(payload, ensure_ascii=False)

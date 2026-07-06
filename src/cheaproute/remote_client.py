@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import time
 
 import requests
@@ -39,17 +40,18 @@ class FireworksClient:
         self.backoff_s = backoff_s
         self.api_key = api_key or os.environ.get("FIREWORKS_API_KEY", "")
 
-    def generate(self, prompt: str) -> GenResult:
+    def generate(self, prompt: str, system_prompt: str | None = None,
+                 max_tokens: int | None = None) -> GenResult:
         if not self.api_key:
             raise RemoteError("FIREWORKS_API_KEY is not set")
         payload = {
             "model": self.model,
             "messages": [
-                {"role": "system", "content": REMOTE_SYSTEM_PROMPT},
+                {"role": "system", "content": system_prompt or REMOTE_SYSTEM_PROMPT},
                 {"role": "user", "content": prompt},
             ],
             "temperature": 0.0,
-            "max_tokens": self.max_tokens,
+            "max_tokens": max_tokens or self.max_tokens,
         }
         last_exc: Exception | None = None
         for attempt in range(self.retries + 1):
@@ -89,7 +91,8 @@ class MockRemoteClient:
         self.fail = fail
         self.calls = 0
 
-    def generate(self, prompt: str) -> GenResult:
+    def generate(self, prompt: str, system_prompt: str | None = None,
+                 max_tokens: int | None = None) -> GenResult:
         self.calls += 1
         if self.fail:
             raise RemoteError("mock remote configured to fail")
@@ -100,11 +103,48 @@ class MockRemoteClient:
         )
 
 
+def pick_remote_model(allowed_csv: str | None, preference: list[str],
+                      fallback: str) -> str:
+    """Choose the remote model from the harness-provided ALLOWED_MODELS list
+    (never hardcoded — calls to non-allowed models invalidate the submission).
+
+    Matching per preference: exact basename first ('gemma-4-31b-it' ==
+    'accounts/fireworks/models/gemma-4-31b-it'.split('/')[-1]), then substring
+    — exact-first prevents 'gemma-4-31b-it' accidentally selecting
+    'gemma-4-31b-it-nvfp4'. Falls back to the first allowed model, or the
+    configured default when the env var is absent (dev environments).
+    """
+    if not allowed_csv or not allowed_csv.strip():
+        return fallback
+    allowed = [m.strip() for m in allowed_csv.split(",") if m.strip()]
+    if not allowed:
+        return fallback
+    for pref in preference:
+        p = pref.lower()
+        for model in allowed:
+            if model.lower().split("/")[-1] == p:
+                return model
+        for model in allowed:
+            if p in model.lower():
+                return model
+    return allowed[0]
+
+
 def make_remote_client(cfg: dict):
     rc = cfg["remote"]
     if rc.get("backend") == "mock":
         return MockRemoteClient()
+    # Harness-injected environment takes priority over any configured value:
+    # ALL calls must go through FIREWORKS_BASE_URL or they are not recorded.
+    base_url = os.environ.get("FIREWORKS_BASE_URL") or rc["base_url"]
+    model = pick_remote_model(
+        os.environ.get("ALLOWED_MODELS"),
+        rc.get("model_preference") or [],
+        rc["model"],
+    )
+    print(f"[cheaproute] remote model: {model} via {base_url}",
+          file=sys.stderr, flush=True)
     return FireworksClient(
-        base_url=rc["base_url"], model=rc["model"], timeout_s=rc["timeout_s"],
+        base_url=base_url, model=model, timeout_s=rc["timeout_s"],
         max_tokens=rc["max_tokens"], retries=rc["retries"], backoff_s=rc["backoff_s"],
     )

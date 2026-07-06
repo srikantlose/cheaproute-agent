@@ -18,18 +18,31 @@ _DEFAULTS: dict[str, Any] = {
     "local": {
         "backend": "mock",
         "base_url": "http://127.0.0.1:8000/v1",
-        "model": "google/gemma-3-4b-it",
+        "model": "local",  # llama-server serves whatever GGUF it loaded
         "max_tokens": 512,
-        "timeout_s": 60,
+        "timeout_s": 25,
         "num_samples": 3,
         "sample_temperature": 0.7,
+        # Stop drawing extra self-consistency samples once this much wall time
+        # is spent on a task ("<30s per request" rule; CPU inference is slow).
+        "sample_budget_s": 18,
     },
     "remote": {
         "backend": "mock",
         "base_url": "https://api.fireworks.ai/inference/v1",
-        "model": "accounts/fireworks/models/gemma-3-27b-it",
+        "model": "accounts/fireworks/models/gemma-4-31b-it",
+        # Ranked preferences matched against the harness's ALLOWED_MODELS env
+        # var at runtime (exact basename first, then substring). Gemma first
+        # (accuracy + Gemma prize), quantized variant before non-Gemma.
+        "model_preference": [
+            "gemma-4-31b-it",
+            "gemma-4-26b-a4b-it",
+            "gemma-4-31b-it-nvfp4",
+            "minimax-m3",
+            "kimi-k2p7-code",
+        ],
         "max_tokens": 400,
-        "timeout_s": 45,
+        "timeout_s": 25,
         "retries": 2,
         "backoff_s": 1.0,
     },
@@ -40,6 +53,14 @@ _DEFAULTS: dict[str, Any] = {
         "w_format": 0.15,
         "logprob_floor": -2.5,
         "logprob_ceil": -0.05,
+    },
+    "batch": {
+        "input_path": "/input/tasks.json",
+        "output_path": "/output/results.json",
+        "inference_log_path": "/output/inference_log.json",
+        "workers": 4,
+        # Leave headroom inside the harness's 10-minute hard cap.
+        "runtime_budget_s": 540,
     },
     "adapter": "stdio",
     "http_port": 8080,
@@ -82,6 +103,8 @@ def load_config(path: str | os.PathLike | None = None) -> dict[str, Any]:
     for key, default in _DEFAULTS.items():
         if isinstance(default, dict):
             for sub, subdefault in default.items():
+                if isinstance(subdefault, (list, dict)):
+                    continue  # structured values: config file only
                 env = os.environ.get(f"CHEAPROUTE_{key.upper()}_{sub.upper()}")
                 if env is not None:
                     cfg[key][sub] = _coerce(env, subdefault)

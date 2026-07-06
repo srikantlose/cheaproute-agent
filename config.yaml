@@ -1,42 +1,61 @@
 # CheapRoute configuration.
-# Every value here can be overridden by an environment variable (see src/cheaproute/config.py),
-# so the container can be re-tuned at kickoff WITHOUT rebuilding the image.
+# Every scalar here can be overridden by an environment variable
+# (CHEAPROUTE_<SECTION>_<KEY>, see src/cheaproute/config.py), so the container
+# can be re-tuned WITHOUT rebuilding the image.
+#
+# Harness-injected env vars (take priority over this file at runtime):
+#   FIREWORKS_API_KEY   - remote auth (never stored in the image)
+#   FIREWORKS_BASE_URL  - ALL remote calls are routed through it
+#   ALLOWED_MODELS      - remote model chosen from it via model_preference
 
 local:
-  # OpenAI-compatible endpoint. In production this is vLLM (ROCm) serving Gemma.
-  # Set backend to "mock" for GPU-free development/testing on any machine.
-  backend: mock            # "openai" (vLLM/any OpenAI-compatible server) | "mock"
+  # OpenAI-compatible endpoint. In the container this is llama-server (CPU)
+  # serving a quantized Gemma GGUF. "mock" = GPU/binary-free development.
+  backend: mock            # "openai" | "mock"
   base_url: http://127.0.0.1:8000/v1
-  model: google/gemma-3-4b-it
+  model: local
   max_tokens: 512
-  timeout_s: 60
-  # Self-consistency: how many local samples to draw (1 = single greedy answer).
-  # Local tokens are FREE in scoring, so extra samples only cost latency.
+  timeout_s: 25
+  # Self-consistency samples (per-type profiles in tasktype.py can lower this;
+  # local tokens are FREE in scoring, extra samples only cost latency).
   num_samples: 3
   sample_temperature: 0.7
+  sample_budget_s: 18      # stop extra samples when a task has taken this long
 
 remote:
   backend: mock            # "fireworks" | "mock"
   base_url: https://api.fireworks.ai/inference/v1
-  # Verify the exact Fireworks model id at Phase 3 (catalog may differ).
-  model: accounts/fireworks/models/gemma-3-27b-it
+  model: accounts/fireworks/models/gemma-4-31b-it
+  model_preference:        # ranked; matched against ALLOWED_MODELS at runtime
+    - gemma-4-31b-it
+    - gemma-4-26b-a4b-it
+    - gemma-4-31b-it-nvfp4
+    - minimax-m3
+    - kimi-k2p7-code
   max_tokens: 400
-  timeout_s: 45
+  timeout_s: 25
   retries: 2
   backoff_s: 1.0
 
 routing:
   # Escalate to remote when composite confidence < threshold.
   threshold: 0.62
-  # Composite weights: confidence = w_logprob*logprob_score + w_agreement*agreement + w_format*format_ok
+  # confidence = w_logprob*logprob_score + w_agreement*agreement + w_format*format_ok
+  # (agreement weight is redistributed for free-form/single-sample tasks)
   w_logprob: 0.45
   w_agreement: 0.40
   w_format: 0.15
-  # Mean-logprob normalization range: mapped linearly onto [0, 1].
   logprob_floor: -2.5
   logprob_ceil: -0.05
 
-adapter: stdio             # "stdio" | "http" | "cli"
+batch:
+  input_path: /input/tasks.json
+  output_path: /output/results.json
+  inference_log_path: /output/inference_log.json
+  workers: 4               # match llama-server --parallel
+  runtime_budget_s: 540    # headroom inside the 10-minute hard cap
+
+adapter: stdio             # "stdio" | "http" | "cli" | "batch"
 http_port: 8080
 
 log_path: logs/decisions.jsonl

@@ -1,43 +1,45 @@
 #!/usr/bin/env bash
 # CheapRoute container entrypoint:
-#   1. start vLLM (ROCm) serving the local model on localhost
-#   2. wait until it reports healthy (bounded wait, don't hang forever)
-#   3. exec the routing agent with whichever adapter CHEAPROUTE_ADAPTER selects
+#   1. start llama-server (CPU) with the baked local GGUF
+#   2. wait until healthy — bounded so total readiness stays under the 60s cap
+#   3. exec the routing agent (batch adapter: /input/tasks.json ->
+#      /output/results.json, then exit 0)
 #
-# Env knobs: LOCAL_MODEL, VLLM_PORT, VLLM_MAX_LEN, VLLM_EXTRA_ARGS,
-#            SKIP_VLLM=1 (dev/testing without a GPU: mock or external local),
-#            FIREWORKS_API_KEY (required for remote escalation),
-#            CHEAPROUTE_* overrides (see config.py).
+# Env knobs: LOCAL_MODEL_PATH, LLAMA_PORT, LLAMA_CTX, LLAMA_PARALLEL,
+#            LLAMA_THREADS, LLAMA_EXTRA_ARGS, SKIP_LOCAL=1 (no local model),
+#            plus harness vars (FIREWORKS_API_KEY/BASE_URL, ALLOWED_MODELS)
+#            and CHEAPROUTE_* overrides.
 set -u
 
-LOCAL_MODEL="${LOCAL_MODEL:-google/gemma-3-4b-it}"
-PORT="${VLLM_PORT:-8000}"
+MODEL_PATH="${LOCAL_MODEL_PATH:-/models/local.gguf}"
+PORT="${LLAMA_PORT:-8000}"
 
-if [ "${SKIP_VLLM:-0}" != "1" ]; then
-    echo "[entrypoint] starting vLLM with ${LOCAL_MODEL} on :${PORT}" >&2
-    vllm serve "$LOCAL_MODEL" \
+if [ "${SKIP_LOCAL:-0}" != "1" ] && [ -f "$MODEL_PATH" ]; then
+    echo "[entrypoint] starting llama-server (${MODEL_PATH}) on :${PORT}" >&2
+    /opt/llama/llama-server -m "$MODEL_PATH" \
         --host 127.0.0.1 --port "$PORT" \
-        --max-model-len "${VLLM_MAX_LEN:-4096}" \
-        ${VLLM_EXTRA_ARGS:-} >&2 &
+        -c "${LLAMA_CTX:-8192}" \
+        --parallel "${LLAMA_PARALLEL:-4}" \
+        -t "${LLAMA_THREADS:-$(nproc)}" \
+        ${LLAMA_EXTRA_ARGS:-} >&2 &
 
-    # Bounded health wait: ~6 minutes max (large first-load on cold cache).
+    # <=50 x 1s: leaves headroom inside the 60-second readiness requirement.
     ready=0
-    for _ in $(seq 1 180); do
+    for _ in $(seq 1 50); do
         if curl -sf "http://127.0.0.1:${PORT}/health" >/dev/null 2>&1; then
             ready=1
             break
         fi
-        sleep 2
+        sleep 1
     done
     if [ "$ready" = "1" ]; then
-        echo "[entrypoint] vLLM is healthy" >&2
+        echo "[entrypoint] llama-server is healthy" >&2
     else
         # Do NOT exit: the router degrades gracefully by escalating remotely.
-        echo "[entrypoint] WARNING: vLLM never became healthy; continuing" >&2
+        echo "[entrypoint] WARNING: llama-server not healthy yet; continuing" >&2
     fi
 fi
 
 export CHEAPROUTE_LOCAL_BASE_URL="http://127.0.0.1:${PORT}/v1"
-export CHEAPROUTE_LOCAL_MODEL="$LOCAL_MODEL"
 
-exec python -m cheaproute "$@"
+exec python -m cheaproute --adapter batch "$@"

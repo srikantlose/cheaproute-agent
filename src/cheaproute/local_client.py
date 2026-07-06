@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import random
 import re
 from typing import Optional
@@ -41,15 +42,16 @@ class OpenAICompatClient:
         self.api_key = api_key
 
     def generate(self, prompt: str, temperature: float = 0.0,
-                 seed: Optional[int] = None) -> GenResult:
+                 seed: Optional[int] = None, system_prompt: Optional[str] = None,
+                 max_tokens: Optional[int] = None) -> GenResult:
         payload = {
             "model": self.model,
             "messages": [
-                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "system", "content": system_prompt or SYSTEM_PROMPT},
                 {"role": "user", "content": prompt},
             ],
             "temperature": temperature,
-            "max_tokens": self.max_tokens,
+            "max_tokens": max_tokens or self.max_tokens,
             "logprobs": True,
         }
         if seed is not None:
@@ -85,10 +87,18 @@ class OpenAICompatClient:
 
 
 def _logprob_stats(choice: dict) -> tuple[Optional[float], Optional[float]]:
-    """Extract mean/min token logprob from an OpenAI-format choice, tolerating
-    servers that omit logprobs entirely."""
+    """Extract mean/min token logprob from an OpenAI-format choice. Tolerates
+    servers that omit logprobs, and llama-server variants that report a raw
+    probability field instead of a logprob."""
     content = (choice.get("logprobs") or {}).get("content") or []
-    lps = [t["logprob"] for t in content if isinstance(t, dict) and "logprob" in t]
+    lps = []
+    for t in content:
+        if not isinstance(t, dict):
+            continue
+        if isinstance(t.get("logprob"), (int, float)):
+            lps.append(float(t["logprob"]))
+        elif isinstance(t.get("prob"), (int, float)):  # llama-server variant
+            lps.append(math.log(max(float(t["prob"]), 1e-10)))
     if not lps:
         return None, None
     return sum(lps) / len(lps), min(lps)
@@ -113,7 +123,7 @@ class MockLocalClient:
         self.model = "mock-local"
 
     def generate(self, prompt: str, temperature: float = 0.0,
-                 seed: Optional[int] = None) -> GenResult:
+                 seed: Optional[int] = None, **_kwargs) -> GenResult:
         rng = _det_rng(prompt, temperature, seed)
         m = re.search(r"(-?\d+)\s*([+\-*])\s*(-?\d+)", prompt)
         if m:

@@ -19,6 +19,7 @@ from .confidence import (agreement_score, composite_confidence, extract_final,
                          format_score, majority_index)
 from .remote_client import RemoteError
 from .schema import Decision, GenResult, Task
+from .tasktype import TypeProfile, classify, extract_answer, profile_for
 
 
 class Router:
@@ -45,23 +46,32 @@ class Router:
     # -- internals ---------------------------------------------------------
 
     def _route_inner(self, task: Task) -> Decision:
-        samples, local_error = self._sample_local(task.text)
+        ttype = classify(task.text)
+        prof = profile_for(ttype)
+        samples, local_error = self._sample_local(task.text, prof)
 
         if not samples:
             # Local model completely unavailable: remote is the only option.
-            return self._escalate(task, local_answer="", local_conf=0.0,
-                                  signals={"local_error": local_error},
+            return self._escalate(task, ttype, prof, local_answer="",
+                                  local_conf=0.0,
+                                  signals={"task_type": ttype,
+                                           "local_error": local_error},
                                   tokens=(0, 0))
 
-        finals = [extract_final(s.text) for s in samples]
-        idx = majority_index(finals)
+        finals = [extract_answer(ttype, s.text, extract_final) for s in samples]
+        # Free-form outputs (summaries, code) never string-match: keep the
+        # greedy sample and let logprobs+format carry the confidence.
+        idx = 0 if prof.freeform else majority_index(finals)
         best = samples[idx]
         local_answer = finals[idx]
 
-        agreement = agreement_score(finals)
-        fmt = format_score(best.text, local_answer, best.finish_reason)
+        agreement = (None if prof.freeform or len(samples) == 1
+                     else agreement_score(finals))
+        fmt = format_score(best.text, local_answer, best.finish_reason,
+                           freeform=prof.freeform)
         conf, signals = composite_confidence(
             self.cfg["routing"], best.mean_logprob, agreement, fmt)
+        signals["task_type"] = ttype
         tin = sum(s.tokens_in for s in samples)
         tout = sum(s.tokens_out for s in samples)
 
@@ -72,31 +82,47 @@ class Router:
                 local_answer=local_answer,
                 local_tokens_in=tin, local_tokens_out=tout,
             )
-        return self._escalate(task, local_answer, conf, signals, (tin, tout))
+        return self._escalate(task, ttype, prof, local_answer, conf, signals,
+                              (tin, tout))
 
-    def _sample_local(self, prompt: str) -> tuple[list[GenResult], str | None]:
-        """1 greedy + (k-1) sampled generations; per-sample failures tolerated."""
-        k = max(1, int(self.cfg["local"]["num_samples"]))
+    def _sample_local(self, prompt: str,
+                      prof: TypeProfile) -> tuple[list[GenResult], str | None]:
+        """1 greedy + up to (k-1) sampled generations; per-sample failures are
+        tolerated and sampling stops early when the time budget is spent."""
+        k = max(1, min(int(prof.samples), int(self.cfg["local"]["num_samples"])))
         temp = float(self.cfg["local"]["sample_temperature"])
+        budget = float(self.cfg["local"].get("sample_budget_s", 18))
+        system = f"You are a careful assistant. {prof.local_style}"
+        t0 = time.time()
         samples: list[GenResult] = []
         error: str | None = None
         for i in range(k):
+            if samples and time.time() - t0 > budget:
+                break  # keep what we have; stay inside the per-task budget
             try:
                 samples.append(self.local.generate(
                     prompt,
                     temperature=0.0 if i == 0 else temp,
                     seed=i,
+                    system_prompt=system,
+                    max_tokens=prof.local_max_tokens,
                 ))
             except Exception as exc:
                 error = str(exc)
         return samples, error
 
-    def _escalate(self, task: Task, local_answer: str, local_conf: float,
+    def _escalate(self, task: Task, ttype: str, prof: TypeProfile,
+                  local_answer: str, local_conf: float,
                   signals: dict, tokens: tuple[int, int]) -> Decision:
         tin, tout = tokens
         try:
-            remote = self.remote.generate(task.text)
-            remote_answer = extract_final(remote.text) or remote.text.strip()
+            remote = self.remote.generate(
+                task.text,
+                system_prompt=prof.remote_style,
+                max_tokens=prof.remote_max_tokens,
+            )
+            remote_answer = (extract_answer(ttype, remote.text, extract_final)
+                             or remote.text.strip())
             return Decision(
                 task_id=task.id, route="remote",
                 answer=remote_answer, confidence=round(local_conf, 4),

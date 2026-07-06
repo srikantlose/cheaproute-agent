@@ -66,3 +66,20 @@ def test_composite_in_unit_range():
     conf_low, _ = composite_confidence(ROUTING, -2.4, 0.33, 0.5)
     assert conf_low < 0.4
     assert set(signals) >= {"logprob_score", "agreement", "format_ok"}
+
+
+def test_composite_agreement_none_redistributes_weight():
+    # free-form/single-sample: agreement weight moves to logprob+format
+    conf_none, signals = composite_confidence(ROUTING, -0.1, None, 1.0)
+    assert signals["agreement"] is None
+    assert 0.9 <= conf_none <= 1.0
+    # low logprob without agreement backup should stay low
+    conf_low, _ = composite_confidence(ROUTING, -2.4, None, 0.5)
+    assert conf_low < 0.35
+
+
+def test_format_score_freeform():
+    assert format_score("A fine summary.", "A fine summary.", "stop",
+                        freeform=True) == 1.0
+    assert format_score("Truncated tex", "Truncated tex", "length",
+                        freeform=True) == 0.0

@@ -97,25 +97,39 @@ def logprob_score(mean_logprob: Optional[float], floor: float, ceil: float) -> f
     return min(1.0, max(0.0, (mean_logprob - floor) / (ceil - floor)))
 
 
-def format_score(raw_text: str, final_answer: str, finish_reason: str) -> float:
-    """1.0 = clean 'Answer:' line and finished naturally; 0.5 = got something
-    but sloppy; 0.0 = empty or truncated output."""
+def format_score(raw_text: str, final_answer: str, finish_reason: str,
+                 freeform: bool = False) -> float:
+    """1.0 = well-formed and finished naturally; 0.5 = got something but
+    sloppy; 0.0 = empty or truncated output. Free-form answers (summaries,
+    code, NER lists) have no 'Answer:' convention — non-empty + finished is
+    all we can check."""
     if not final_answer or finish_reason == "length":
         return 0.0
+    if freeform:
+        return 1.0
     if _ANSWER_RE.search(raw_text) and len(final_answer) <= 300:
         return 1.0
     return 0.5
 
 
 def composite_confidence(routing_cfg: dict, mean_logprob: Optional[float],
-                         agreement: float, fmt: float) -> tuple[float, dict]:
+                         agreement: Optional[float], fmt: float) -> tuple[float, dict]:
+    """agreement=None (free-form or single-sample tasks) redistributes its
+    weight onto the remaining signals instead of injecting a fake value."""
     lp = logprob_score(mean_logprob,
                        routing_cfg["logprob_floor"], routing_cfg["logprob_ceil"])
-    conf = (routing_cfg["w_logprob"] * lp
-            + routing_cfg["w_agreement"] * agreement
-            + routing_cfg["w_format"] * fmt)
-    total_w = (routing_cfg["w_logprob"] + routing_cfg["w_agreement"]
-               + routing_cfg["w_format"])
-    conf = conf / total_w if total_w > 0 else 0.0
-    return conf, {"logprob_score": round(lp, 4), "agreement": round(agreement, 4),
-                  "format_ok": fmt, "mean_logprob": mean_logprob}
+    if agreement is None:
+        num = routing_cfg["w_logprob"] * lp + routing_cfg["w_format"] * fmt
+        total_w = routing_cfg["w_logprob"] + routing_cfg["w_format"]
+    else:
+        num = (routing_cfg["w_logprob"] * lp
+               + routing_cfg["w_agreement"] * agreement
+               + routing_cfg["w_format"] * fmt)
+        total_w = (routing_cfg["w_logprob"] + routing_cfg["w_agreement"]
+                   + routing_cfg["w_format"])
+    conf = num / total_w if total_w > 0 else 0.0
+    return conf, {
+        "logprob_score": round(lp, 4),
+        "agreement": round(agreement, 4) if agreement is not None else None,
+        "format_ok": fmt, "mean_logprob": mean_logprob,
+    }

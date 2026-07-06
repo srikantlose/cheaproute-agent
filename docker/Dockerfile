@@ -1,37 +1,45 @@
-# CheapRoute scoring container.
-# Base: AMD's official ROCm vLLM image — vLLM + PyTorch(ROCm) preinstalled.
-# Verify the freshest tag on https://hub.docker.com/r/rocm/vllm before the
-# final build; pin it explicitly for reproducibility.
-FROM rocm/vllm:latest
+# CheapRoute Track 1 scoring container (linux/amd64).
+#
+# Constraints from the Participant Guide this image is built around:
+#   - compressed size <= 10GB   (this build: ~3GB)
+#   - ready within 60s          (llama-server loads a 2.5GB GGUF in seconds)
+#   - 10 min max runtime        (batch adapter enforces its own deadline)
+#   - judging VM is linux/amd64, no GPU assumed -> CPU llama.cpp inference
+#
+# Build (from repo root):
+#   docker build --platform linux/amd64 -f docker/Dockerfile -t cheaproute .
+
+# Stage 1: grab the llama-server binary + shared libs from the official image.
+FROM ghcr.io/ggml-org/llama.cpp:server AS llama
+
+FROM python:3.12-slim
+
+# llama-server runtime dependencies (OpenMP, curl for health checks/downloads)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libgomp1 libcurl4 curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=llama /app /opt/llama
+ENV LD_LIBRARY_PATH=/opt/llama
 
 WORKDIR /app
-
-# --- application ---------------------------------------------------------
 COPY pyproject.toml README.md LICENSE ./
 COPY src ./src
 COPY config.yaml ./
 RUN pip install --no-cache-dir .
 
-# --- model weights -------------------------------------------------------
-# Bake the local model into the image so the scoring environment needs no
-# HuggingFace network access at runtime. google/gemma-3-* is a GATED repo:
-# accept the license on huggingface.co once, then build with
-#   docker build --build-arg HF_TOKEN=hf_xxx -f docker/Dockerfile .
-ARG LOCAL_MODEL=google/gemma-3-4b-it
-ARG HF_TOKEN=""
-ENV LOCAL_MODEL=${LOCAL_MODEL} \
-    HF_HOME=/models
-RUN if [ -n "$HF_TOKEN" ]; then \
-        HF_TOKEN=$HF_TOKEN huggingface-cli download "$LOCAL_MODEL"; \
-    else \
-        echo "WARNING: HF_TOKEN not set — weights NOT baked, vLLM will try" \
-             "to download at runtime (needs network + token in the env)"; \
-    fi
+# Bake the local Gemma GGUF into the image: the judging environment must not
+# need HuggingFace network access. Public, ungated repo — no token required.
+ARG LOCAL_GGUF_URL=https://huggingface.co/ggml-org/gemma-3-4b-it-GGUF/resolve/main/gemma-3-4b-it-Q4_K_M.gguf
+RUN mkdir -p /models && curl -fL --retry 3 -o /models/local.gguf "$LOCAL_GGUF_URL"
 
-# --- runtime defaults (all overridable with -e at docker run) -------------
+# Runtime defaults — the harness overrides behaviour via FIREWORKS_API_KEY,
+# FIREWORKS_BASE_URL and ALLOWED_MODELS; CHEAPROUTE_* knobs stay tunable.
 ENV CHEAPROUTE_LOCAL_BACKEND=openai \
     CHEAPROUTE_REMOTE_BACKEND=fireworks \
-    CHEAPROUTE_ADAPTER=stdio
+    CHEAPROUTE_ADAPTER=batch \
+    CHEAPROUTE_LOG_PATH=/output/decisions.jsonl \
+    LOCAL_MODEL_PATH=/models/local.gguf
 
 COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
