@@ -6,8 +6,11 @@
 #   - 10 min max runtime        (batch adapter enforces its own deadline)
 #   - judging VM is linux/amd64, no GPU assumed -> CPU llama.cpp inference
 #
-# Build (from repo root):
-#   docker build --platform linux/amd64 -f docker/Dockerfile -t cheaproute .
+# Two submission variants from this one file (see README "Routing modes"):
+#   docker build --platform linux/amd64 --build-arg ROUTING_MODE=remote_only \
+#     -f docker/Dockerfile -t cheaproute:remote-only .
+#   docker build --platform linux/amd64 \
+#     -f docker/Dockerfile -t cheaproute:local-first .
 
 # Stage 1: grab the llama-server binary + shared libs from the official image.
 FROM ghcr.io/ggml-org/llama.cpp:server AS llama
@@ -35,8 +38,11 @@ RUN mkdir -p /models && curl -fL --retry 3 -o /models/local.gguf "$LOCAL_GGUF_UR
 
 # Runtime defaults — the harness overrides behaviour via FIREWORKS_API_KEY,
 # FIREWORKS_BASE_URL and ALLOWED_MODELS; CHEAPROUTE_* knobs stay tunable.
+# ROUTING_MODE bakes the variant: local_first | remote_only.
+ARG ROUTING_MODE=local_first
 ENV CHEAPROUTE_LOCAL_BACKEND=openai \
     CHEAPROUTE_REMOTE_BACKEND=fireworks \
+    CHEAPROUTE_ROUTING_MODE=${ROUTING_MODE} \
     CHEAPROUTE_ADAPTER=batch \
     CHEAPROUTE_LOG_PATH=/output/decisions.jsonl \
     LOCAL_MODEL_PATH=/models/local.gguf

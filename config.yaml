@@ -38,6 +38,13 @@ remote:
   backoff_s: 1.0
 
 routing:
+  # local_first: sample local, escalate below threshold (near-zero proxy
+  #   tokens IF locally-generated answers earn accuracy credit).
+  # remote_only: every answer comes from the remote model (safe under the
+  #   organizer clarification that local inference "doesn't count"); local
+  #   is only the fallback when the remote API is unreachable.
+  # The submission images set this via the ROUTING_MODE docker build arg.
+  mode: local_first
   # Escalate to remote when composite confidence < threshold.
   threshold: 0.62
   # confidence = w_logprob*logprob_score + w_agreement*agreement + w_format*format_ok

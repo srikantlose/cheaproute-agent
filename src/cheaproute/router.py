@@ -1,13 +1,19 @@
-"""The router: local-first, confidence-gated escalation to remote.
+"""The router. Two modes, selected by routing.mode (CHEAPROUTE_ROUTING_MODE):
 
-Flow per task:
+local_first (default) — confidence-gated escalation:
   1. Sample k answers from the LOCAL model (1 greedy + k-1 at temperature>0).
      Local tokens are free in scoring, so k only costs latency.
   2. Score confidence = f(mean logprob, sample agreement, format check).
   3. confidence >= τ  -> return the majority local answer   (0 cost)
      confidence <  τ  -> call the REMOTE model              (tokens count)
-  4. Any remote failure falls back to the best local answer. The router
-     NEVER raises — a wrong answer scores better than a crashed container.
+
+remote_only — every answer comes from the remote model (organizer guidance:
+  inference that counts must go through the Fireworks API). The task-type
+  profile still shapes the prompt and max_tokens; the local model is used
+  only as a last resort when the remote call fails.
+
+In both modes any remote failure falls back to a local answer. The router
+NEVER raises — a wrong answer scores better than a crashed container.
 """
 
 from __future__ import annotations
@@ -48,6 +54,14 @@ class Router:
     def _route_inner(self, task: Task) -> Decision:
         ttype = classify(task.text)
         prof = profile_for(ttype)
+
+        if self.cfg["routing"].get("mode", "local_first") == "remote_only":
+            return self._escalate(task, ttype, prof, local_answer="",
+                                  local_conf=0.0,
+                                  signals={"task_type": ttype,
+                                           "mode": "remote_only"},
+                                  tokens=(0, 0))
+
         samples, local_error = self._sample_local(task.text, prof)
 
         if not samples:
@@ -134,7 +148,12 @@ class Router:
             )
         except (RemoteError, Exception) as exc:
             # Remote unavailable: the local answer (even a shaky one) is the
-            # best remaining move. Never crash, never hang.
+            # best remaining move. In remote_only mode no local sample exists
+            # yet, so take a single greedy one now. Never crash, never hang.
+            if not local_answer:
+                local_answer, ltin, ltout = self._local_last_resort(
+                    task.text, ttype, prof)
+                tin, tout = tin + ltin, tout + ltout
             return Decision(
                 task_id=task.id, route="remote_failed_local",
                 answer=local_answer or "unknown",
@@ -143,6 +162,20 @@ class Router:
                 local_tokens_in=tin, local_tokens_out=tout,
                 error=f"remote escalation failed: {exc}",
             )
+
+    def _local_last_resort(self, prompt: str, ttype: str,
+                           prof: TypeProfile) -> tuple[str, int, int]:
+        """One greedy local sample, best-effort: failure returns no answer."""
+        try:
+            r = self.local.generate(
+                prompt, temperature=0.0,
+                system_prompt=f"You are a careful assistant. {prof.local_style}",
+                max_tokens=prof.local_max_tokens,
+            )
+            return (extract_answer(ttype, r.text, extract_final),
+                    r.tokens_in, r.tokens_out)
+        except Exception:
+            return "", 0, 0
 
 
 def build_router(cfg: dict, logger=None) -> Router:

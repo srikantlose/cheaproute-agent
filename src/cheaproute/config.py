@@ -47,6 +47,10 @@ _DEFAULTS: dict[str, Any] = {
         "backoff_s": 1.0,
     },
     "routing": {
+        # "local_first": sample the local model, escalate below threshold.
+        # "remote_only": every answer comes from the remote model; local is
+        # kept solely as a fallback when the remote API is unreachable.
+        "mode": "local_first",
         "threshold": 0.62,
         "w_logprob": 0.45,
         "w_agreement": 0.40,

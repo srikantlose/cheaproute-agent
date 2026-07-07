@@ -1,24 +1,40 @@
 # CheapRoute
 
-**Hybrid token-efficient routing agent** — AMD Developer Hackathon: ACT II, Track 1.
+**Token-efficient routing agent** — AMD Developer Hackathon: ACT II, Track 1.
 
-For every task, CheapRoute tries a small **local** Gemma model first (llama.cpp on
-CPU inside the container — local tokens are free in scoring). It estimates how
-confident that answer is; only when confidence falls below a tunable threshold τ
-does it escalate to a stronger **remote** Gemma model on Fireworks AI — the only
-tokens that count. Submissions pass an LLM-judge accuracy gate, then rank by
-fewest proxy-recorded tokens: the router's job is to stay above the gate while
-spending as close to zero as possible.
+Submissions pass an LLM-judge accuracy gate, then rank by fewest
+proxy-recorded tokens. CheapRoute's job is to stay above the gate while
+spending as close to zero as possible. It ships two routing modes behind one
+switch (`routing.mode` / `CHEAPROUTE_ROUTING_MODE`), because organizer
+guidance is ambiguous about whether locally-generated answers earn accuracy
+credit ("tokens used locally count as zero toward the final score" vs "any
+inference done locally scores zero and doesn't count"):
+
+- **`remote_only`** — every answer comes from a Fireworks model chosen at
+  runtime from `ALLOWED_MODELS`. The task-type classifier keeps prompts
+  terse and output budgets tight; the local model is only a last-resort
+  fallback if the API is unreachable. Safe under the strict reading.
+- **`local_first`** — try a small **local** Gemma model first (llama.cpp on
+  CPU inside the container, zero proxy tokens), estimate confidence, and
+  escalate to Fireworks only below a tunable threshold τ. Near-zero token
+  cost if the favorable reading holds.
+
+Both modes are tags of the same image; the leaderboard decides which one
+survives.
 
 ```
 /input/tasks.json ─▶ batch adapter (thread pool + global deadline watchdog)
                         │ per task: classify type (math/code/summary/NER/...)
-                        ▼
-                     local: k samples + logprobs (llama.cpp, Gemma GGUF, free)
-                        │ confidence = logprobs ⊕ agreement ⊕ format
-                        ├─ conf ≥ τ ─▶ local answer                (0 tokens)
-                        └─ conf < τ ─▶ Fireworks via FIREWORKS_BASE_URL
-                                        └─ on failure ─▶ local answer
+          ┌─────────────┴──────────────┐
+   mode=remote_only             mode=local_first
+          │                            │
+          ▼                            ▼
+   Fireworks via            local: k samples + logprobs (Gemma GGUF, free)
+   FIREWORKS_BASE_URL          │ confidence = logprobs ⊕ agreement ⊕ format
+   (terse prompt, tight        ├─ conf ≥ τ ─▶ local answer        (0 tokens)
+    max_tokens)                └─ conf < τ ─▶ Fireworks via FIREWORKS_BASE_URL
+          │ on failure ─▶ 1 local sample        │ on failure ─▶ local answer
+          └─────────────┬──────────────────────┘
                         ▼
                      /output/results.json  (+ inference_log.json), exit 0
 ```
@@ -84,13 +100,20 @@ the generated Python against asserts in a sandboxed subprocess.
 
 ## Container
 
+Two variants from one Dockerfile — the `ROUTING_MODE` build arg bakes the
+mode (still overridable at runtime via `CHEAPROUTE_ROUTING_MODE`):
+
 ```bash
-docker build --platform linux/amd64 -f docker/Dockerfile -t cheaproute .
+docker build --platform linux/amd64 --build-arg ROUTING_MODE=remote_only \
+  -f docker/Dockerfile -t cheaproute:remote-only .
+docker build --platform linux/amd64 \
+  -f docker/Dockerfile -t cheaproute:local-first .
+
 docker run -v $(pwd)/input:/input -v $(pwd)/output:/output \
   -e FIREWORKS_API_KEY=fw_xxx \
   -e FIREWORKS_BASE_URL=https://api.fireworks.ai/inference/v1 \
   -e ALLOWED_MODELS=gemma-4-31b-it,minimax-m3 \
-  cheaproute
+  cheaproute:remote-only
 ```
 
 The entrypoint starts llama-server with the baked Gemma GGUF, health-checks it
@@ -101,8 +124,10 @@ task escalates remotely; if Fireworks is down, the local answer is returned —
 Publish for submission (public GHCR package):
 
 ```bash
-docker tag cheaproute ghcr.io/srikantlose/cheaproute-agent:latest
-docker push ghcr.io/srikantlose/cheaproute-agent:latest
+docker tag cheaproute:remote-only ghcr.io/srikantlose/cheaproute-agent:remote-only
+docker tag cheaproute:remote-only ghcr.io/srikantlose/cheaproute-agent:latest
+docker tag cheaproute:local-first ghcr.io/srikantlose/cheaproute-agent:local-first
+docker push --all-tags ghcr.io/srikantlose/cheaproute-agent
 ```
 
 ## Robustness guarantees
@@ -112,6 +137,15 @@ docker push ghcr.io/srikantlose/cheaproute-agent:latest
 - Global deadline watchdog writes partial-but-valid results before the runtime cap.
 - Per-task decision records (route, type, confidence signals, token counts,
   latency) go to `/output/inference_log.json` and stderr.
+
+## Submission
+
+- **Docker image**: `ghcr.io/srikantlose/cheaproute-agent:latest`
+  (= `:remote-only`, the safe variant); `:local-first` is the near-zero-token
+  variant, kept while the local-inference scoring question is settled on the
+  leaderboard.
+- **Demo video**: _link TBD_
+- **Slide deck**: _link TBD_
 
 ## License
 
