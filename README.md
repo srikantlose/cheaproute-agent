@@ -100,10 +100,16 @@ the generated Python against asserts in a sandboxed subprocess.
 
 ## Container
 
-Two variants from one Dockerfile — the `ROUTING_MODE` build arg bakes the
-mode (still overridable at runtime via `CHEAPROUTE_ROUTING_MODE`):
+Pull the published image (or build it — two variants from one Dockerfile, the
+`ROUTING_MODE` build arg bakes the mode, still overridable at runtime via
+`CHEAPROUTE_ROUTING_MODE`):
 
 ```bash
+# Published images
+docker pull srikantlose/cheaproute-agent:remote-only
+docker pull srikantlose/cheaproute-agent:local-first
+
+# ...or build from source
 docker build --platform linux/amd64 --build-arg ROUTING_MODE=remote_only \
   -f docker/Dockerfile -t cheaproute:remote-only .
 docker build --platform linux/amd64 \
@@ -113,7 +119,7 @@ docker run -v $(pwd)/input:/input -v $(pwd)/output:/output \
   -e FIREWORKS_API_KEY=fw_xxx \
   -e FIREWORKS_BASE_URL=https://api.fireworks.ai/inference/v1 \
   -e ALLOWED_MODELS=gemma-4-31b-it,minimax-m3 \
-  cheaproute:remote-only
+  srikantlose/cheaproute-agent:remote-only
 ```
 
 The entrypoint starts llama-server with the baked Gemma GGUF, health-checks it
@@ -121,13 +127,15 @@ The entrypoint starts llama-server with the baked Gemma GGUF, health-checks it
 task escalates remotely; if Fireworks is down, the local answer is returned —
 **the container never crashes, never hangs, and always writes valid JSON**.
 
-Publish for submission (public GHCR package):
+Publish for submission (public Docker Hub repository):
 
 ```bash
-docker tag cheaproute:remote-only ghcr.io/srikantlose/cheaproute-agent:remote-only
-docker tag cheaproute:remote-only ghcr.io/srikantlose/cheaproute-agent:latest
-docker tag cheaproute:local-first ghcr.io/srikantlose/cheaproute-agent:local-first
-docker push --all-tags ghcr.io/srikantlose/cheaproute-agent
+docker tag cheaproute:remote-only srikantlose/cheaproute-agent:remote-only
+docker tag cheaproute:remote-only srikantlose/cheaproute-agent:latest
+docker tag cheaproute:local-first srikantlose/cheaproute-agent:local-first
+docker push srikantlose/cheaproute-agent:latest
+docker push srikantlose/cheaproute-agent:remote-only
+docker push srikantlose/cheaproute-agent:local-first
 ```
 
 ## Robustness guarantees
@@ -140,7 +148,7 @@ docker push --all-tags ghcr.io/srikantlose/cheaproute-agent
 
 ## Submission
 
-- **Docker image**: `ghcr.io/srikantlose/cheaproute-agent:latest`
+- **Docker image**: `docker.io/srikantlose/cheaproute-agent:latest`
   (= `:remote-only`, the safe variant); `:local-first` is the near-zero-token
   variant, kept while the local-inference scoring question is settled on the
   leaderboard.
