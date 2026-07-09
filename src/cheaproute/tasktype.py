@@ -121,7 +121,13 @@ def extract_answer(task_type: str, raw_text: str, extract_final_fn) -> str:
     prof = profile_for(task_type)
     if task_type in ("code_debug", "code_gen"):
         blocks = _FENCE_RE.findall(text)
-        return blocks[-1].strip() if blocks else text
+        if not blocks:
+            return text
+        # Models sometimes add a second fenced block with a usage example
+        # after the real implementation; prefer the last block that actually
+        # defines something over a trailing print(...)-only demo snippet.
+        defs = [b for b in blocks if re.search(r"\b(def|class)\s+\w", b)]
+        return (defs[-1] if defs else blocks[-1]).strip()
     if prof.freeform:
         return text
     return extract_final_fn(text)
