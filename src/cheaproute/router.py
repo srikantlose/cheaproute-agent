@@ -111,8 +111,11 @@ class Router:
         samples: list[GenResult] = []
         error: str | None = None
         for i in range(k):
-            if samples and time.time() - t0 > budget:
-                break  # keep what we have; stay inside the per-task budget
+            if i > 0 and time.time() - t0 > budget:
+                # Stay inside the per-task budget even if every attempt so
+                # far failed/timed out (an empty `samples` must not defeat
+                # this check, or a stalled first call blows the deadline).
+                break
             try:
                 samples.append(self.local.generate(
                     prompt,

@@ -15,12 +15,12 @@ local:
   base_url: http://127.0.0.1:8000/v1
   model: local
   max_tokens: 512
-  timeout_s: 25
+  timeout_s: 20
   # Self-consistency samples (per-type profiles in tasktype.py can lower this;
   # local tokens are FREE in scoring, extra samples only cost latency).
   num_samples: 3
   sample_temperature: 0.7
-  sample_budget_s: 18      # stop extra samples when a task has taken this long
+  sample_budget_s: 12      # stop extra samples when a task has taken this long
 
 remote:
   backend: mock            # "fireworks" | "mock"
@@ -32,7 +32,7 @@ remote:
     - gemma-4-31b-it-nvfp4
     - minimax-m3
     - kimi-k2p7-code
-  max_tokens: 400
+  max_tokens: 700
   timeout_s: 25
   retries: 2
   backoff_s: 1.0

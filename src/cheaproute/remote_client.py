@@ -19,8 +19,9 @@ import requests
 from .schema import GenResult
 
 REMOTE_SYSTEM_PROMPT = (
-    "Answer the task accurately and concisely. "
-    "Give the final result on the last line as:\nAnswer: <final answer>"
+    "Answer the task accurately. Do not show reasoning, chain-of-thought, or "
+    "restate the question. Respond with ONLY the final result, on a single "
+    "line, formatted exactly as:\nAnswer: <final answer>"
 )
 
 
@@ -44,17 +45,18 @@ class FireworksClient:
                  max_tokens: int | None = None) -> GenResult:
         if not self.api_key:
             raise RemoteError("FIREWORKS_API_KEY is not set")
-        payload = {
-            "model": self.model,
-            "messages": [
-                {"role": "system", "content": system_prompt or REMOTE_SYSTEM_PROMPT},
-                {"role": "user", "content": prompt},
-            ],
-            "temperature": 0.0,
-            "max_tokens": max_tokens or self.max_tokens,
-        }
+        budget = max_tokens or self.max_tokens
         last_exc: Exception | None = None
         for attempt in range(self.retries + 1):
+            payload = {
+                "model": self.model,
+                "messages": [
+                    {"role": "system", "content": system_prompt or REMOTE_SYSTEM_PROMPT},
+                    {"role": "user", "content": prompt},
+                ],
+                "temperature": 0.0,
+                "max_tokens": budget,
+            }
             try:
                 resp = requests.post(
                     f"{self.base_url}/chat/completions",
@@ -68,11 +70,24 @@ class FireworksClient:
                 data = resp.json()
                 choice = data["choices"][0]
                 usage = data.get("usage") or {}
+                message = choice.get("message") or {}
+                text = message.get("content") or ""
+                finish_reason = choice.get("finish_reason", "stop")
+                # Some hosted "reasoning" models put hidden chain-of-thought in
+                # a separate reasoning_content field; a tight max_tokens can
+                # exhaust the whole budget on that before any visible content
+                # forms. Retry once with a much bigger budget rather than
+                # repeating the same starved call and falling back to local.
+                if not text and message.get("reasoning_content") and \
+                        finish_reason == "length" and attempt < self.retries:
+                    last_exc = RemoteError("budget exhausted by reasoning_content")
+                    budget = max(budget * 4, 256)
+                    continue
                 return GenResult(
-                    text=choice["message"]["content"] or "",
+                    text=text,
                     tokens_in=usage.get("prompt_tokens", 0),
                     tokens_out=usage.get("completion_tokens", 0),
-                    finish_reason=choice.get("finish_reason", "stop"),
+                    finish_reason=finish_reason,
                 )
             except (requests.RequestException, json.JSONDecodeError,
                     KeyError, IndexError, TypeError) as exc:

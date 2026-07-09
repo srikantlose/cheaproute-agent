@@ -76,13 +76,13 @@ _SHORT = ("Solve the task. Think briefly if needed, then give only the final "
           "result on the last line in the form:\nAnswer: <final answer>")
 
 PROFILES: dict[str, TypeProfile] = {
-    "math": TypeProfile(False, 3, 256, 96, _SHORT,
+    "math": TypeProfile(False, 2, 256, 96, _SHORT,
                         "Answer with the final number/result only."),
     "mc": TypeProfile(False, 3, 128, 16, _SHORT,
                       "Answer with the correct option letter only."),
     "sentiment": TypeProfile(False, 3, 96, 48, _SHORT,
                              "Give the sentiment label and one short justification."),
-    "logic": TypeProfile(False, 3, 320, 96, _SHORT,
+    "logic": TypeProfile(False, 2, 320, 96, _SHORT,
                          "Answer concisely with the final result."),
     "short_qa": TypeProfile(False, 3, 192, 96, _SHORT,
                             "Answer accurately and concisely."),
