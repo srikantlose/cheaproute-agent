@@ -106,19 +106,23 @@ Fireworks-hosted remote model (the harness's exact `ALLOWED_MODELS` aren't
 reachable with a personal Fireworks key, so a comparably-sized model stood in
 for remote validation):
 
-| variant       | accuracy | max per-task latency | total batch time |
-|---------------|---------:|----------------------:|------------------:|
-| `local-first` |    97.2% |                 27.1s |              ~89s |
-| `remote-only` |    90.7% |                 12.8s |              ~65s |
+| variant       | accuracy | max per-task latency |
+|---------------|---------:|----------------------:|
+| `local-first` |    99.1% |                 25.7s |
+| `remote-only` |    93.5% |                  8.3s |
 
 Both stay inside the 30s/request and 10-minute total limits with headroom.
-This pass also surfaced and fixed two real bugs: a hosted "reasoning" model
-could exhaust its whole token budget on hidden chain-of-thought before
-emitting a visible answer (now retried once with a larger budget instead of
-silently failing), and concurrent CPU-bound local sampling under the full
-batch's worker load could blow past the per-task latency budget (fixed by
-tightening the sampling deadline and trimming self-consistency samples for
-the slowest categories).
+This pass also surfaced and fixed several real bugs: a hosted "reasoning"
+model could get cut off mid-answer whenever it wanted more room than the
+budget allowed — whether that meant hidden chain-of-thought eating the
+whole budget (empty visible answer) or a preamble truncating the trailing
+"Answer:" line itself — now retried once with a larger budget instead of
+returning a broken reply; concurrent CPU-bound local sampling under the
+full batch's worker load could blow past the per-task latency budget
+(fixed by tightening the sampling deadline and trimming self-consistency
+samples for the slowest categories); and code answers occasionally picked
+up a trailing usage-example code block instead of the actual implementation
+(fixed by preferring the fenced block that defines something).
 
 ## Container
 
