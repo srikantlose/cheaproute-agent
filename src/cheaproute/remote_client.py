@@ -73,14 +73,15 @@ class FireworksClient:
                 message = choice.get("message") or {}
                 text = message.get("content") or ""
                 finish_reason = choice.get("finish_reason", "stop")
-                # Some hosted "reasoning" models put hidden chain-of-thought in
-                # a separate reasoning_content field; a tight max_tokens can
-                # exhaust the whole budget on that before any visible content
-                # forms. Retry once with a much bigger budget rather than
-                # repeating the same starved call and falling back to local.
-                if not text and message.get("reasoning_content") and \
-                        finish_reason == "length" and attempt < self.retries:
-                    last_exc = RemoteError("budget exhausted by reasoning_content")
+                # finish_reason == "length" always means the model wanted to
+                # keep going and got cut off — whether that's hidden
+                # reasoning_content eating the whole budget (visible text
+                # empty) or a preamble that leaves the trailing "Answer:"
+                # line itself truncated (visible text non-empty but broken).
+                # Either way the answer is unusable; retry once with a much
+                # bigger budget rather than returning a truncated/empty reply.
+                if finish_reason == "length" and attempt < self.retries:
+                    last_exc = RemoteError("truncated before completion (finish_reason=length)")
                     budget = max(budget * 4, 256)
                     continue
                 return GenResult(
