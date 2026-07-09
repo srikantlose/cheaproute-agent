@@ -34,7 +34,12 @@ RUN pip install --no-cache-dir .
 # Bake the local Gemma GGUF into the image: the judging environment must not
 # need HuggingFace network access. Public, ungated repo — no token required.
 ARG LOCAL_GGUF_URL=https://huggingface.co/ggml-org/gemma-3-4b-it-GGUF/resolve/main/gemma-3-4b-it-Q4_K_M.gguf
-RUN mkdir -p /models && curl -fL --retry 3 -o /models/local.gguf "$LOCAL_GGUF_URL"
+RUN mkdir -p /models && \
+    for i in 1 2 3 4 5; do \
+        curl -fL --retry 3 --retry-all-errors -C - -o /models/local.gguf "$LOCAL_GGUF_URL" && break; \
+        echo "download attempt $i failed, retrying..." >&2; sleep 5; \
+    done && \
+    test -s /models/local.gguf
 
 # Runtime defaults — the harness overrides behaviour via FIREWORKS_API_KEY,
 # FIREWORKS_BASE_URL and ALLOWED_MODELS; CHEAPROUTE_* knobs stay tunable.
