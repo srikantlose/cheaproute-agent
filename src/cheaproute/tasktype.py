@@ -74,18 +74,20 @@ class TypeProfile:
 
 _SHORT = ("Solve the task. Think briefly if needed, then give only the final "
           "result on the last line in the form:\nAnswer: <final answer>")
+_PLAIN = (" Plain text only, no markdown or LaTeX. Last line exactly:\n"
+          "Answer: <final answer>")
 
 PROFILES: dict[str, TypeProfile] = {
     "math": TypeProfile(False, 2, 256, 96, _SHORT,
-                        "Answer with the final number/result only."),
+                        "Answer with the final number/result only." + _PLAIN),
     "mc": TypeProfile(False, 3, 128, 16, _SHORT,
                       "Answer with the correct option letter only."),
     "sentiment": TypeProfile(False, 3, 96, 48, _SHORT,
                              "Give the sentiment label and one short justification."),
     "logic": TypeProfile(False, 2, 320, 96, _SHORT,
-                         "Answer concisely with the final result."),
+                         "Answer concisely with the final result." + _PLAIN),
     "short_qa": TypeProfile(False, 3, 192, 96, _SHORT,
-                            "Answer accurately and concisely."),
+                            "Answer accurately and concisely." + _PLAIN),
     "summarization": TypeProfile(True, 1, 260, 220,
                                  "Follow the requested format and length exactly. "
                                  "Output only the summary.",
