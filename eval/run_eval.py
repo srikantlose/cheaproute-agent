@@ -30,6 +30,7 @@ from cheaproute.confidence import (agreement_score, composite_confidence,
 from cheaproute.config import load_config  # noqa: E402
 from cheaproute.router import Router, build_router  # noqa: E402
 from cheaproute.schema import Task  # noqa: E402
+from cheaproute.tasktype import classify, profile_for  # noqa: E402
 
 
 def load_tasks(path: Path) -> list[dict]:
@@ -118,7 +119,9 @@ def main() -> int:
 def _collect_both(router: Router, cfg: dict, task: Task, t: dict):
     """Generate the local answer + confidence AND the remote answer for one
     task, grade both, and return (display_row, cache_row)."""
-    samples, _err = router._sample_local(task.text)
+    ttype = classify(task.text)
+    prof = profile_for(ttype)
+    samples, _err = router._sample_local(task.text, prof)
     if samples:
         finals = [extract_final(s.text) for s in samples]
         idx = majority_index(finals)
