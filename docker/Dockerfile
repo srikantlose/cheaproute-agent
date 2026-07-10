@@ -22,6 +22,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libgomp1 libcurl4 curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
+# Bake the local Gemma GGUF into the image: the judging environment must not
+# need HuggingFace network access. Public, ungated repo — no token required.
+# Placed as early as possible (only depends on apt packages + this ARG) so
+# editing application code/config below never invalidates this ~2.3GB, several-
+# -minute download layer on a rebuild.
+ARG LOCAL_GGUF_URL=https://huggingface.co/ggml-org/gemma-3-4b-it-GGUF/resolve/main/gemma-3-4b-it-Q4_K_M.gguf
+RUN mkdir -p /models && \
+    for i in 1 2 3 4 5; do \
+        curl -fL --retry 3 --retry-all-errors -C - -o /models/local.gguf "$LOCAL_GGUF_URL" && break; \
+        echo "download attempt $i failed, retrying..." >&2; sleep 5; \
+    done && \
+    test -s /models/local.gguf
+
 COPY --from=llama /app /opt/llama
 ENV LD_LIBRARY_PATH=/opt/llama
 
@@ -30,16 +43,6 @@ COPY pyproject.toml README.md LICENSE ./
 COPY src ./src
 COPY config.yaml ./
 RUN pip install --no-cache-dir .
-
-# Bake the local Gemma GGUF into the image: the judging environment must not
-# need HuggingFace network access. Public, ungated repo — no token required.
-ARG LOCAL_GGUF_URL=https://huggingface.co/ggml-org/gemma-3-4b-it-GGUF/resolve/main/gemma-3-4b-it-Q4_K_M.gguf
-RUN mkdir -p /models && \
-    for i in 1 2 3 4 5; do \
-        curl -fL --retry 3 --retry-all-errors -C - -o /models/local.gguf "$LOCAL_GGUF_URL" && break; \
-        echo "download attempt $i failed, retrying..." >&2; sleep 5; \
-    done && \
-    test -s /models/local.gguf
 
 # Runtime defaults — the harness overrides behaviour via FIREWORKS_API_KEY,
 # FIREWORKS_BASE_URL and ALLOWED_MODELS; CHEAPROUTE_* knobs stay tunable.
