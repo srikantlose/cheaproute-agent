@@ -7,11 +7,17 @@ Contract (Participant Guide):
   - 10-minute hard runtime cap; results must be valid JSON or the run scores 0
 
 Design:
-  - tasks run concurrently on a thread pool (llama-server has matching
-    --parallel slots; remote calls are I/O-bound anyway)
+  - tasks run concurrently on a small pool of daemon threads pulling from a
+    shared queue (llama-server has matching --parallel slots; remote calls
+    are I/O-bound anyway)
   - a global deadline watchdog guarantees results.json is written with EVERY
     task_id present even if some tasks never finished (empty answer beats an
-    invalid or missing file)
+    invalid or missing file) -- results are written the instant the deadline
+    fires, not after waiting for in-flight tasks to finish. Deliberately NOT
+    a ThreadPoolExecutor: `with ThreadPoolExecutor(...)` blocks on __exit__
+    (shutdown(wait=True)) until every running task returns, which can push
+    the write past the 10-minute hard cap on a slow/failing last task. Daemon
+    threads need no join -- they die with the process after run() returns.
   - an inference log with per-task routing decisions is written next to the
     results for transparency/debugging
 """
@@ -19,9 +25,10 @@ Design:
 from __future__ import annotations
 
 import json
+import queue
 import sys
+import threading
 import time
-from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from pathlib import Path
 
 from .common import parse_task
@@ -47,10 +54,12 @@ def run(router, cfg: dict, input_path: str | None = None,
         task = parse_task(entry)
         tid = None
         if isinstance(entry, dict) and entry.get("task_id") is not None:
-            tid = str(entry["task_id"])
+            tid = entry["task_id"]  # echo the original JSON type (int/str/etc)
         elif task is not None:
             tid = task.id
-        parsed.append((tid or f"task-{i}", task))
+        if tid is None:
+            tid = f"task-{i}"
+        parsed.append((tid, task))
 
     answers: dict[int, str] = {}
     log_rows: dict[int, dict] = {}
@@ -68,26 +77,40 @@ def run(router, cfg: dict, input_path: str | None = None,
         }
 
     workers = max(1, int(bc["workers"]))
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = {}
-        for i, (_tid, task) in enumerate(parsed):
-            if task is None:
-                answers[i] = ""
-                continue
-            futures[pool.submit(work, i, task)] = i
+    work_q: queue.Queue = queue.Queue()
+    for i, (_tid, task) in enumerate(parsed):
+        if task is None:
+            answers[i] = ""
+        else:
+            work_q.put((i, task))
+    n_work = work_q.qsize()
+    all_done = threading.Event()
+    remaining = [n_work]
+    lock = threading.Lock()
 
-        pending = set(futures)
-        while pending:
-            remaining = deadline - time.time()
-            if remaining <= 0:
-                print(f"[batch] deadline reached with {len(pending)} tasks "
-                      "unfinished — writing partial results",
-                      file=sys.stderr, flush=True)
-                for fut in pending:
-                    fut.cancel()
-                break
-            done, pending = wait(pending, timeout=min(remaining, 5.0),
-                                 return_when=FIRST_COMPLETED)
+    def _worker() -> None:
+        while True:
+            try:
+                i, task = work_q.get_nowait()
+            except queue.Empty:
+                return
+            try:
+                work(i, task)  # router.route() never raises
+            finally:
+                with lock:
+                    remaining[0] -= 1
+                    if remaining[0] <= 0:
+                        all_done.set()
+
+    if n_work == 0:
+        all_done.set()
+    for j in range(min(workers, max(1, n_work))):
+        threading.Thread(target=_worker, daemon=True, name=f"batch-{j}").start()
+
+    if not all_done.wait(timeout=max(0.0, deadline - time.time())):
+        print(f"[batch] deadline reached with {remaining[0]} tasks "
+              "unfinished — writing partial results",
+              file=sys.stderr, flush=True)
 
     results = []
     for i, (tid, _task) in enumerate(parsed):

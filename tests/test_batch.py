@@ -1,10 +1,12 @@
 import json
+import time
 
 from cheaproute.adapters import batch
 from cheaproute.config import load_config
 from cheaproute.local_client import MockLocalClient
 from cheaproute.remote_client import MockRemoteClient
 from cheaproute.router import Router
+from cheaproute.schema import Decision
 
 
 def make_router(cfg):
@@ -83,3 +85,41 @@ def test_batch_tolerates_tasks_wrapper_object(tmp_path):
     cfg = make_cfg(tmp_path)
     assert batch.run(make_router(cfg), cfg) == 0
     assert read_results(tmp_path)[0]["task_id"] == "w1"
+
+
+def test_batch_preserves_task_id_json_type(tmp_path):
+    (tmp_path / "tasks.json").write_text(
+        json.dumps([{"task_id": 7, "prompt": "What is 2 + 2?"},
+                    {"task_id": 0, "prompt": "What is 3 + 3?"}]),
+        encoding="utf-8")
+    cfg = make_cfg(tmp_path)
+    assert batch.run(make_router(cfg), cfg) == 0
+    results = read_results(tmp_path)
+    ids = [r["task_id"] for r in results]
+    assert ids == [7, 0]  # original int types preserved, 0 not treated as falsy
+    assert all(isinstance(i, int) for i in ids)
+
+
+class SlowRouter:
+    """Simulates an in-flight remote call that outlives the deadline. A
+    ThreadPoolExecutor-based batch loop blocks on shutdown(wait=True) until
+    every started task like this returns; the daemon-thread implementation
+    must not."""
+
+    def route(self, task):
+        time.sleep(3.0)
+        return Decision(task_id=task.id, route="local", answer="late",
+                        confidence=1.0)
+
+
+def test_batch_deadline_with_slow_workers_writes_promptly(tmp_path):
+    write_tasks(tmp_path, [
+        {"task_id": f"t{i}", "prompt": f"What is {i} + {i}?"} for i in range(4)
+    ])
+    cfg = make_cfg(tmp_path, runtime_budget_s=1, workers=2)
+    t0 = time.time()
+    assert batch.run(SlowRouter(), cfg) == 0
+    elapsed = time.time() - t0
+    assert elapsed < 2.5, f"batch.run took {elapsed:.2f}s, should not wait on slow workers"
+    results = read_results(tmp_path)
+    assert [r["task_id"] for r in results] == [f"t{i}" for i in range(4)]
