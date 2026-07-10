@@ -1,7 +1,12 @@
-"""Task-type awareness for the 8 evaluation categories.
+"""Task-type awareness for the 11 evaluation categories.
 
-The judge evaluates 8 capability categories (factual, math, sentiment,
-summarisation, NER, code debugging, logic, code generation). Types differ in:
+The judge evaluates 11 capability categories: factual Q&A, math, multiple
+choice, classification, extraction, language, summarisation, NER, code
+debugging, code generation, logic. The classifier also keeps a narrow
+`sentiment` branch (a high-precision subset of classification) ahead of the
+general `classification` branch, since a review's sentiment label benefits
+from a slightly different prompt than an arbitrary category label. Types
+differ in:
   - how the local/remote models should be prompted,
   - how the final answer is extracted (short-form "Answer: X" vs full text),
   - how many self-consistency samples make sense (agreement is meaningless
@@ -26,18 +31,36 @@ _CODEGEN_WORDS = re.compile(r"\b(write|implement|create|build)\b.{0,40}\b(functi
                             r"method|class|program|script|code)\b", re.IGNORECASE)
 _SUMMARY_WORDS = re.compile(r"\b(summari[sz]e|summary|condense|tl;?dr|"
                             r"in (?:one|1|a single) sentence|shorten)\b", re.IGNORECASE)
-_NER_WORDS = re.compile(r"\b(named entit|entities|extract .{0,40}\b(person|people|"
-                        r"organi[sz]ation|location|date)s?\b|label .{0,20}entit)",
-                        re.IGNORECASE)
+# Tightened to require "extract ALL ... <entity kind>" or a bare "entit(y|ies)"
+# mention -- "extract the <single field>" (an extraction task, not NER) used
+# to leak in here via a looser "extract ... person/date" pattern.
+_NER_WORDS = re.compile(r"\bnamed entit|\bentit(?:y|ies)\b|\blabel .{0,20}entit|"
+                        r"\bextract all\b.{0,60}\b(names?|people|persons?|"
+                        r"locations?|organi[sz]ations?|dates?)\b", re.IGNORECASE)
 _SENTIMENT_WORDS = re.compile(r"\b(sentiment|positive or negative|"
                               r"classify .{0,40}(review|tone|feedback))\b", re.IGNORECASE)
+_EXTRACT_WORDS = re.compile(r"\b(extract|pull)\b.{0,60}\bfrom\b|\bextract the\b|"
+                            r"\bwhat \w+ is being (reviewed|described|discussed)\b",
+                            re.IGNORECASE)
 _MC_PATTERN = re.compile(r"\bA[\).]\s.+\bB[\).]\s", re.DOTALL)
-_MATH_WORDS = re.compile(r"\b(?:calculate|compute|how (?:many|much)|sum of|"
-                         r"average|divided by|times|plus|minus|square root)\b|"
-                         r"what is \d|%|\d+\s*[-+*/^]\s*\d+", re.IGNORECASE)
+_CLASSIFY_WORDS = re.compile(r"\b(classify|categori[sz]e)\b|\bspam or not\b|"
+                             r"\bformal or informal\b|\bfact or (?:an )?opinion\b|"
+                             r"\bodd or even\b|\bplant or (?:an )?animal\b|"
+                             r"\bwhat language is\b|\bwhat category\b|"
+                             r"\btrue or false\b", re.IGNORECASE)
+_LANGUAGE_WORDS = re.compile(r"\b(translate|antonym|synonym|plural of|"
+                             r"past tense|opposite of)\b", re.IGNORECASE)
 _LOGIC_WORDS = re.compile(r"\b(puzzle|riddle|if all|who is (?:the )?(?:taller|"
                           r"shorter|older|younger|shortest|tallest)|constraint|"
-                          r"deduce|conclude|next (?:number|item) in)\b", re.IGNORECASE)
+                          r"deduce|conclude|next (?:number|item|term) in|"
+                          r"all but|which is (?:heavier|lighter|bigger|smaller)|"
+                          r"sequence|(?:if )?(?:today|tomorrow|yesterday) is|"
+                          r"day (?:before|after) (?:yesterday|tomorrow))\b",
+                          re.IGNORECASE)
+_MATH_WORDS = re.compile(r"\b(?:calculate|compute|how (?:many|much)|sum of|"
+                         r"average|divided by|times|plus|minus|square root|"
+                         r"(?:area|perimeter|volume) of)\b|"
+                         r"what is \d|[%=]|\d+\s*[-+*/^]\s*\d+", re.IGNORECASE)
 
 
 def classify(prompt: str) -> str:
@@ -51,10 +74,21 @@ def classify(prompt: str) -> str:
         return "summarization"
     if _NER_WORDS.search(p):
         return "ner"
+    # Extraction (pull one field out of a sentence) before sentiment/mc so a
+    # phone number or percentage embedded in the source text doesn't get
+    # caught by a later, broader check.
+    if _EXTRACT_WORDS.search(p):
+        return "extraction"
     if _SENTIMENT_WORDS.search(p):
         return "sentiment"
     if _MC_PATTERN.search(p):
         return "mc"
+    if _CLASSIFY_WORDS.search(p):
+        return "classification"
+    if _LANGUAGE_WORDS.search(p):
+        return "language"
+    # Logic before math: several logic puzzles ("all but 9", "how many
+    # minutes...") also contain math-ish words and must not be caught there.
     if _LOGIC_WORDS.search(p):
         return "logic"
     if _MATH_WORDS.search(p):
@@ -84,6 +118,15 @@ PROFILES: dict[str, TypeProfile] = {
                       "Answer with the correct option letter only."),
     "sentiment": TypeProfile(False, 3, 96, 48, _SHORT,
                              "Give the sentiment label and one short justification."),
+    "classification": TypeProfile(False, 3, 96, 24, _SHORT,
+                                  "Answer with only the requested label." + _PLAIN),
+    "extraction": TypeProfile(False, 2, 96, 48,
+                              "Find the requested value in the text and copy it "
+                              "exactly. Give only the final result on the last "
+                              "line in the form:\nAnswer: <value>",
+                              "Reply with only the extracted value." + _PLAIN),
+    "language": TypeProfile(False, 3, 64, 24, _SHORT,
+                            "Reply with only the requested word or phrase." + _PLAIN),
     "logic": TypeProfile(False, 2, 320, 96, _SHORT,
                          "Answer concisely with the final result." + _PLAIN),
     "short_qa": TypeProfile(False, 3, 192, 96, _SHORT,

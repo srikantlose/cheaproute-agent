@@ -23,8 +23,9 @@ Both modes are tags of the same image; the leaderboard decides which one
 survives.
 
 ```
-/input/tasks.json ─▶ batch adapter (thread pool + global deadline watchdog)
-                        │ per task: classify type (math/code/summary/NER/...)
+/input/tasks.json ─▶ batch adapter (daemon-thread pool + global deadline watchdog)
+                        │ per task: classify type (math/mc/classification/
+                        │   extraction/language/logic/summary/NER/code/...)
           ┌─────────────┴──────────────┐
    mode=remote_only             mode=local_first
           │                            │
@@ -54,7 +55,9 @@ survives.
 ## Task-type awareness
 
 A zero-cost heuristic classifier ([tasktype.py](src/cheaproute/tasktype.py)) maps each
-prompt to one of the 8 evaluation categories and sets: the local/remote
+prompt to one of the 11 evaluation categories (factual Q&A, math, multiple
+choice, classification, extraction, language, summarization, NER, code
+debugging, code generation, logic) and sets: the local/remote
 prompts, how the final answer is extracted (fenced code for code tasks, full
 text for summaries/NER, `Answer:` line otherwise), the self-consistency sample
 count (3 for short-form, 1 for free-form), and the remote `max_tokens` budget
@@ -88,7 +91,7 @@ python -m cheaproute --adapter batch --input in/tasks.json --output out/results.
 ## Evaluation & threshold tuning
 
 ```bash
-python eval/run_eval.py --collect-both     # 107 practice tasks across all 8
+python eval/run_eval.py --collect-both     # 107 practice tasks across all 11
                                            # categories; grades local AND remote
 python eval/tune_threshold.py --min-accuracy 0.85
 ```

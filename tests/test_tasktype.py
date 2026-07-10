@@ -2,7 +2,7 @@ from cheaproute.confidence import extract_final
 from cheaproute.tasktype import classify, extract_answer, profile_for
 
 
-def test_classify_eight_categories():
+def test_classify_all_categories():
     cases = {
         "What is 15% of 240?": "math",
         "Which is the largest planet? A) Earth B) Jupiter C) Mars D) Venus.": "mc",
@@ -13,9 +13,27 @@ def test_classify_eight_categories():
         "Write a Python function is_even(n) that returns True if n is even.": "code_gen",
         "What is the next number in the sequence 2, 4, 8?": "logic",
         "What is the capital of France?": "short_qa",
+        # newly covered categories
+        "Is this message spam or not spam? 'CONGRATULATIONS! You WON!'": "classification",
+        "Is the number 7 odd or even?": "classification",
+        "Extract the phone number from: 'Call us at 555-0142 on weekdays.'": "extraction",
+        "Extract the percentage from: 'Revenue grew by 12% this quarter.'": "extraction",
+        "Translate 'Good morning' into French.": "language",
+        "What is the plural of 'child'?": "language",
+        "A farmer has 17 sheep. All but 9 run away. How many sheep are left?": "logic",
+        "If tomorrow is Wednesday, what day was the day before yesterday?": "logic",
     }
     for prompt, expected in cases.items():
         assert classify(prompt) == expected, f"{prompt!r} -> {classify(prompt)}"
+
+
+def test_new_profiles_are_shortform_with_tight_remote_budgets():
+    for t in ("classification", "extraction", "language"):
+        prof = profile_for(t)
+        assert not prof.freeform
+        assert prof.remote_max_tokens <= 48
+    # mc stays load-bearing for the truncation-retry interaction
+    assert profile_for("mc").remote_max_tokens <= 32
 
 
 def test_profiles_freeform_vs_shortform():
