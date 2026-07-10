@@ -68,6 +68,18 @@ def test_threshold_is_respected():
     assert d.route == "remote"
 
 
+class EmptyRemote:
+    def generate(self, *a, **k):
+        return GenResult(text="", finish_reason="stop", tokens_in=5, tokens_out=0)
+
+
+def test_empty_remote_answer_falls_back_to_local():
+    router = Router(make_cfg(mode="remote_only"), MockLocalClient(), EmptyRemote())
+    d = router.route(Task(id="t9", text="What is 12 + 30?"))
+    assert d.route == "remote_failed_local"
+    assert d.answer and d.answer != ""
+
+
 class TruncatedLocal:
     def generate(self, *a, **k):
         return GenResult(text="Answer: blah", mean_logprob=-0.1,
@@ -81,3 +93,16 @@ def test_truncated_local_output_lowers_confidence():
     # format score is 0 for truncation; with high agreement+logprob it may
     # still pass, so assert the signal is present and zeroed
     assert d.signals.get("format_ok") == 0.0
+
+
+class RaisingLogger:
+    def log(self, decision):
+        raise RuntimeError("disk full")
+
+
+def test_raising_logger_does_not_crash_route():
+    router = Router(make_cfg(), MockLocalClient(), MockRemoteClient(),
+                    logger=RaisingLogger())
+    d = router.route(Task(id="t10", text="What is 12 + 30?"))
+    assert d.route == "local"
+    assert d.answer == "42"

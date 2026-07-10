@@ -46,7 +46,10 @@ class Router:
             )
         decision.latency_s = round(time.time() - t0, 3)
         if self.logger is not None:
-            self.logger.log(decision)
+            try:
+                self.logger.log(decision)
+            except Exception:
+                pass  # logging must never be the reason route() raises
         return decision
 
     # -- internals ---------------------------------------------------------
@@ -140,6 +143,12 @@ class Router:
             )
             remote_answer = (extract_answer(ttype, remote.text, extract_final)
                              or remote.text.strip())
+            if not remote_answer.strip():
+                # HTTP 200 + finish_reason=stop but no visible content (e.g. a
+                # reasoning model burned its budget on hidden reasoning_content)
+                # is functionally a failure -- fall through to local rescue
+                # rather than shipping an empty answer under route="remote".
+                raise RemoteError("remote returned an empty answer")
             return Decision(
                 task_id=task.id, route="remote",
                 answer=remote_answer, confidence=round(local_conf, 4),
