@@ -106,17 +106,26 @@ class TypeProfile:
     remote_style: str       # the entire remote instruction — compact!
 
 
-_SHORT = ("Solve the task. Think briefly if needed, then give only the final "
-          "result on the last line in the form:\nAnswer: <final answer>")
+_SHORT = ("Solve the task. Think briefly if needed, then answer every part of "
+          "the question, giving the complete final answer on the last line "
+          "in the form:\nAnswer: <complete final answer>")
 _PLAIN = (" Plain text only, no markdown or LaTeX. Last line exactly:\n"
           "Answer: <final answer>")
+# Local tokens are free in scoring (only remote output tokens count), and the
+# real evaluator is an LLM judge grading against task intent, not a strict
+# string match -- so local answers should favor completeness over the
+# terseness that keeps remote-token spend down.
+_SENTIMENT_LOCAL = ("Determine the sentiment (positive or negative) and "
+                    "briefly justify it. Give the complete answer on the "
+                    "last line in the form:\nAnswer: <label> - <brief "
+                    "justification>")
 
 PROFILES: dict[str, TypeProfile] = {
     "math": TypeProfile(False, 2, 256, 96, _SHORT,
                         "Answer with the final number/result only." + _PLAIN),
     "mc": TypeProfile(False, 3, 128, 16, _SHORT,
                       "Answer with the correct option letter only."),
-    "sentiment": TypeProfile(False, 3, 96, 48, _SHORT,
+    "sentiment": TypeProfile(False, 3, 96, 48, _SENTIMENT_LOCAL,
                              "Give the sentiment label and one short justification."),
     "classification": TypeProfile(False, 3, 96, 24, _SHORT,
                                   "Answer with only the requested label." + _PLAIN),
