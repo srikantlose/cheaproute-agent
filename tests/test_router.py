@@ -3,6 +3,7 @@ from cheaproute.local_client import MockLocalClient
 from cheaproute.remote_client import MockRemoteClient, RemoteError
 from cheaproute.router import Router
 from cheaproute.schema import GenResult, Task
+from cheaproute.tasktype import profile_for
 
 
 def make_cfg(**routing_overrides):
@@ -98,6 +99,29 @@ def test_truncated_local_output_lowers_confidence():
 class RaisingLogger:
     def log(self, decision):
         raise RuntimeError("disk full")
+
+
+def test_local_candidate_matches_route_local_first_confidence():
+    router = Router(make_cfg(), MockLocalClient(), MockRemoteClient())
+    ttype = "math"
+    prof = profile_for(ttype)
+    answer, conf, signals, tin, tout, err = router.local_candidate(
+        "What is 12 + 30?", ttype, prof)
+    assert answer == "42"
+    assert conf > 0
+    assert signals.get("task_type") == "math"
+    assert not signals.get("local_unavailable")
+    assert tin + tout > 0
+    assert err is None
+
+
+def test_local_candidate_reports_unavailable_when_local_is_down():
+    router = Router(make_cfg(), BrokenLocal(), MockRemoteClient())
+    answer, conf, signals, tin, tout, err = router.local_candidate(
+        "anything", "short_qa", profile_for("short_qa"))
+    assert signals.get("local_unavailable") is True
+    assert answer == "" and conf == 0.0 and tin == 0 and tout == 0
+    assert err  # the underlying exception message is preserved
 
 
 def test_raising_logger_does_not_crash_route():

@@ -25,12 +25,11 @@ sys.path.insert(0, str(Path(__file__).parents[1] / "src"))
 
 from graders import grade  # noqa: E402
 
-from cheaproute.confidence import (agreement_score, composite_confidence,
-                                   extract_final, format_score, majority_index)
 from cheaproute.config import load_config  # noqa: E402
+from cheaproute.confidence import extract_final  # noqa: E402
 from cheaproute.router import Router, build_router  # noqa: E402
 from cheaproute.schema import Task  # noqa: E402
-from cheaproute.tasktype import classify, profile_for  # noqa: E402
+from cheaproute.tasktype import classify, extract_answer, profile_for  # noqa: E402
 
 
 def load_tasks(path: Path) -> list[dict]:
@@ -118,25 +117,27 @@ def main() -> int:
 
 def _collect_both(router: Router, cfg: dict, task: Task, t: dict):
     """Generate the local answer + confidence AND the remote answer for one
-    task, grade both, and return (display_row, cache_row)."""
+    task, grade both, and return (display_row, cache_row).
+
+    Both halves go through the exact production code paths (Router.
+    local_candidate for local, the same system_prompt/max_tokens the router
+    would use for remote) so the confidence/answers/token counts this writes
+    to the tuner cache match what routing would actually do -- not an
+    approximation of it. Historically this used its own majority-vote +
+    extract_final logic (ignoring prof.freeform) and called remote with no
+    system prompt or token budget, which meant threshold tuning was sweeping
+    against numbers production never produces."""
     ttype = classify(task.text)
     prof = profile_for(ttype)
-    samples, _err = router._sample_local(task.text, prof)
-    if samples:
-        finals = [extract_final(s.text) for s in samples]
-        idx = majority_index(finals)
-        best = samples[idx]
-        local_answer = finals[idx]
-        conf, _sig = composite_confidence(
-            cfg["routing"], best.mean_logprob,
-            agreement_score(finals),
-            format_score(best.text, local_answer, best.finish_reason))
-    else:
-        local_answer, conf = "", 0.0
+    local_answer, conf, _signals, _tin, _tout, _local_err = \
+        router.local_candidate(task.text, ttype, prof)
 
     try:
-        remote = router.remote.generate(task.text)
-        remote_answer = extract_final(remote.text) or remote.text.strip()
+        remote = router.remote.generate(
+            task.text, system_prompt=prof.remote_style,
+            max_tokens=prof.remote_max_tokens)
+        remote_answer = (extract_answer(ttype, remote.text, extract_final)
+                         or remote.text.strip())
         remote_tokens = remote.tokens_in + remote.tokens_out
         remote_err = None
     except Exception as exc:

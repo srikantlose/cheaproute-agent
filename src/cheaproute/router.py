@@ -65,15 +65,40 @@ class Router:
                                            "mode": "remote_only"},
                                   tokens=(0, 0))
 
-        samples, local_error = self._sample_local(task.text, prof)
+        local_answer, conf, signals, tin, tout, local_error = \
+            self.local_candidate(task.text, ttype, prof)
 
-        if not samples:
+        if signals.get("local_unavailable"):
             # Local model completely unavailable: remote is the only option.
             return self._escalate(task, ttype, prof, local_answer="",
                                   local_conf=0.0,
                                   signals={"task_type": ttype,
                                            "local_error": local_error},
                                   tokens=(0, 0))
+
+        if conf >= self.cfg["routing"]["threshold"]:
+            return Decision(
+                task_id=task.id, route="local", answer=local_answer,
+                confidence=round(conf, 4), signals=signals,
+                local_answer=local_answer,
+                local_tokens_in=tin, local_tokens_out=tout,
+            )
+        return self._escalate(task, ttype, prof, local_answer, conf, signals,
+                              (tin, tout))
+
+    def local_candidate(self, task_text: str, ttype: str, prof: TypeProfile
+                        ) -> tuple[str, float, dict, int, int, str | None]:
+        """Sample + score the local model exactly as the local_first routing
+        path does. Returns (local_answer, confidence, signals, tokens_in,
+        tokens_out, local_error). `signals["local_unavailable"]` is set when
+        no sample could be drawn at all (local model down). Shared by
+        _route_inner and eval/run_eval.py's --collect-both so offline
+        threshold tuning sees the same confidence the router would compute
+        in production, not an approximation of it."""
+        samples, local_error = self._sample_local(task_text, prof)
+
+        if not samples:
+            return "", 0.0, {"local_unavailable": True}, 0, 0, local_error
 
         finals = [extract_answer(ttype, s.text, extract_final) for s in samples]
         # Free-form outputs (summaries, code) never string-match: keep the
@@ -91,16 +116,7 @@ class Router:
         signals["task_type"] = ttype
         tin = sum(s.tokens_in for s in samples)
         tout = sum(s.tokens_out for s in samples)
-
-        if conf >= self.cfg["routing"]["threshold"]:
-            return Decision(
-                task_id=task.id, route="local", answer=local_answer,
-                confidence=round(conf, 4), signals=signals,
-                local_answer=local_answer,
-                local_tokens_in=tin, local_tokens_out=tout,
-            )
-        return self._escalate(task, ttype, prof, local_answer, conf, signals,
-                              (tin, tout))
+        return local_answer, conf, signals, tin, tout, local_error
 
     def _sample_local(self, prompt: str,
                       prof: TypeProfile) -> tuple[list[GenResult], str | None]:
