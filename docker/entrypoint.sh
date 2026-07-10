@@ -18,7 +18,7 @@ if [ "${SKIP_LOCAL:-0}" != "1" ] && [ -f "$MODEL_PATH" ]; then
     echo "[entrypoint] starting llama-server (${MODEL_PATH}) on :${PORT}" >&2
     /opt/llama/llama-server -m "$MODEL_PATH" \
         --host 127.0.0.1 --port "$PORT" \
-        -c "${LLAMA_CTX:-8192}" \
+        -c "${LLAMA_CTX:-16384}" \
         --parallel "${LLAMA_PARALLEL:-4}" \
         -t "${LLAMA_THREADS:-$(nproc)}" \
         ${LLAMA_EXTRA_ARGS:-} >&2 &
