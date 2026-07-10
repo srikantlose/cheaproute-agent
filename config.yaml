@@ -52,8 +52,16 @@ routing:
   #   is only the fallback when the remote API is unreachable.
   # The submission images set this via the ROUTING_MODE docker build arg.
   mode: local_first
-  # Escalate to remote when composite confidence < threshold.
-  threshold: 0.62
+  # Escalate to remote when composite confidence < threshold. Tuned against
+  # real local (gemma-3-4b-it Q4_K_M) + real remote (Fireworks) inference on
+  # the 107-task practice set: accuracy is flat at 93.5% for tau in
+  # [0.02, 0.64] (96% local, ~813 remote tokens total), only dropping to
+  # 89.7% at tau=0 (100% local -- no safety net for a genuinely failed local
+  # generation). Since local tokens are free and only remote tokens count
+  # toward the token-efficiency ranking, the right choice is the lowest tau
+  # that still gives local failures somewhere to escalate to -- see
+  # eval/results/threshold_curve.csv for the full sweep.
+  threshold: 0.02
   # confidence = w_logprob*logprob_score + w_agreement*agreement + w_format*format_ok
   # (agreement weight is redistributed for free-form/single-sample tasks)
   w_logprob: 0.45

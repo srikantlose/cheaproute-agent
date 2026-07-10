@@ -51,7 +51,7 @@ _DEFAULTS: dict[str, Any] = {
         # "remote_only": every answer comes from the remote model; local is
         # kept solely as a fallback when the remote API is unreachable.
         "mode": "local_first",
-        "threshold": 0.62,
+        "threshold": 0.02,
         "w_logprob": 0.45,
         "w_agreement": 0.40,
         "w_format": 0.15,

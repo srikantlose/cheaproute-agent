@@ -21,8 +21,11 @@ def test_confident_local_answer_stays_local():
 
 
 def test_low_confidence_escalates_to_remote():
+    # MockLocalClient's confidence for this question is ~0.35; explicitly set
+    # a threshold above that so the test exercises escalation regardless of
+    # wherever the production default happens to be tuned.
     remote = MockRemoteClient()
-    router = Router(make_cfg(), MockLocalClient(), remote)
+    router = Router(make_cfg(threshold=0.62), MockLocalClient(), remote)
     d = router.route(Task(id="t2", text="Which philosopher wrote the Zibaldone?"))
     assert d.route == "remote"
     assert d.answer == "REMOTE"
@@ -31,7 +34,8 @@ def test_low_confidence_escalates_to_remote():
 
 
 def test_remote_failure_falls_back_to_local_answer():
-    router = Router(make_cfg(), MockLocalClient(), MockRemoteClient(fail=True))
+    router = Router(make_cfg(threshold=0.62), MockLocalClient(),
+                    MockRemoteClient(fail=True))
     d = router.route(Task(id="t3", text="Which philosopher wrote the Zibaldone?"))
     assert d.route == "remote_failed_local"
     assert d.answer  # still returned something
