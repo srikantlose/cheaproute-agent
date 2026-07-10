@@ -9,3 +9,13 @@ eval/results/
 # local working notes, not part of the submission
 HANDOFF.md
 plan.md
+# ad-hoc local validation scratch (container run inputs/outputs, sampled subsets)
+/in/
+/in19/
+/out19/
+/out107/
+eval/tasks/practice19.jsonl
+# fine-tune artifacts (synthetic dataset, trained weights) -- large/regenerable
+train/data/
+train/checkpoints/
+models/
