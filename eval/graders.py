@@ -24,6 +24,25 @@ from cheaproute.confidence import answers_agree, normalize_answer
 from cheaproute.tasktype import _FENCE_RE
 
 _LETTER_RE = re.compile(r"\b([a-d])\b")
+_LOOSE_NUM_RE = re.compile(r"-?\d[\d,]*(?:\.\d+)?")
+_CURRENCY_RE = re.compile(r"[$€£]")
+
+
+def _loose_number(s: str) -> float | None:
+    """Best-effort number extraction for grading only: strips currency
+    symbols and unit words, normalizes a unicode minus, and pulls the first
+    number out of noisy answer text like "$42" or "42 kg". This is
+    deliberately more permissive than confidence.answers_agree (which also
+    drives production routing agreement scores and must stay strict)."""
+    s = normalize_answer(s).replace("−", "-")
+    s = _CURRENCY_RE.sub("", s)
+    m = _LOOSE_NUM_RE.search(s.replace(",", ""))
+    if not m:
+        return None
+    try:
+        return float(m.group())
+    except ValueError:
+        return None
 
 
 def grade(task: dict, answer: str) -> bool:
@@ -32,7 +51,15 @@ def grade(task: dict, answer: str) -> bool:
     ans_norm = normalize_answer(answer or "")
 
     if kind == "numeric":
-        return answers_agree(str(expected), answer or "")
+        if answers_agree(str(expected), answer or ""):
+            return True
+        # answers_agree requires the WHOLE normalized string to be a bare
+        # number; fall back to a loose extraction for grading purposes only
+        # (a correct "$42" or "42 kg" shouldn't read as a wrong answer).
+        exp_n, got_n = _loose_number(str(expected)), _loose_number(answer or "")
+        if exp_n is None or got_n is None:
+            return False
+        return abs(exp_n - got_n) <= 1e-6 * max(1.0, abs(exp_n), abs(got_n))
 
     if kind == "contains":
         options = expected if isinstance(expected, list) else [expected]

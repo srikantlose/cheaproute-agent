@@ -6,6 +6,14 @@ sys.path.insert(0, str(Path(__file__).parents[1] / "eval"))
 from graders import grade  # noqa: E402
 
 
+def test_numeric_tolerates_currency_units_and_unicode_minus():
+    assert grade({"grader": "numeric", "expected": "42"}, "$42")
+    assert grade({"grader": "numeric", "expected": "42"}, "42 kg")
+    assert grade({"grader": "numeric", "expected": "-5"}, "−5")  # unicode minus
+    assert not grade({"grader": "numeric", "expected": "42"}, "41")  # still wrong
+    assert not grade({"grader": "numeric", "expected": "42"}, "$41")
+
+
 def test_contains_all():
     task = {"grader": "contains_all", "expected": ["merkel", "paris"]}
     assert grade(task, "PERSON: Angela Merkel, LOCATION: Paris")
