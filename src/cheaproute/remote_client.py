@@ -66,6 +66,14 @@ class FireworksClient:
                 )
                 if resp.status_code in (429, 500, 502, 503, 504):
                     raise requests.HTTPError(f"retryable status {resp.status_code}")
+                if 400 <= resp.status_code < 500:
+                    # A 4xx here (e.g. an unreachable/misconfigured model id)
+                    # will never succeed on retry -- fail immediately so the
+                    # router falls back to local instead of burning the retry
+                    # budget (backoff + timeouts) on a doomed call.
+                    raise RemoteError(
+                        f"non-retryable client error {resp.status_code}: "
+                        f"{resp.text[:200]}")
                 resp.raise_for_status()
                 data = resp.json()
                 choice = data["choices"][0]
@@ -153,6 +161,10 @@ def make_remote_client(cfg: dict):
     # Harness-injected environment takes priority over any configured value:
     # ALL calls must go through FIREWORKS_BASE_URL or they are not recorded.
     base_url = os.environ.get("FIREWORKS_BASE_URL") or rc["base_url"]
+    if not (os.environ.get("ALLOWED_MODELS") or "").strip():
+        print("[cheaproute] WARNING: ALLOWED_MODELS not set -- falling back to "
+              f"configured model {rc['model']!r}; set CHEAPROUTE_REMOTE_MODEL "
+              "for dev/validation runs", file=sys.stderr, flush=True)
     model = pick_remote_model(
         os.environ.get("ALLOWED_MODELS"),
         rc.get("model_preference") or [],
