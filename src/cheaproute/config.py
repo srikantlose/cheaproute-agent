@@ -77,7 +77,10 @@ def _coerce(value: str, like: Any) -> Any:
     if isinstance(like, bool):
         return value.lower() in ("1", "true", "yes", "on")
     if isinstance(like, int):
-        return int(value)
+        try:
+            return int(value)
+        except ValueError:
+            return int(float(value))  # tolerate "30.0"-style overrides
     if isinstance(like, float):
         return float(value)
     return value
