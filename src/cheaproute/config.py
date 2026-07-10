@@ -20,12 +20,12 @@ _DEFAULTS: dict[str, Any] = {
         "base_url": "http://127.0.0.1:8000/v1",
         "model": "local",  # llama-server serves whatever GGUF it loaded
         "max_tokens": 512,
-        "timeout_s": 25,
+        "timeout_s": 15,
         "num_samples": 3,
         "sample_temperature": 0.7,
         # Stop drawing extra self-consistency samples once this much wall time
         # is spent on a task ("<30s per request" rule; CPU inference is slow).
-        "sample_budget_s": 18,
+        "sample_budget_s": 8,
     },
     "remote": {
         "backend": "mock",
@@ -42,7 +42,7 @@ _DEFAULTS: dict[str, Any] = {
             "kimi-k2p7-code",
         ],
         "max_tokens": 400,
-        "timeout_s": 25,
+        "timeout_s": 20,
         "retries": 2,
         "backoff_s": 1.0,
     },
