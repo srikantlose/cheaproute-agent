@@ -29,8 +29,7 @@ from pathlib import Path
 import torch
 from datasets import Dataset
 from peft import LoraConfig, get_peft_model
-from transformers import (AutoModelForCausalLM, AutoTokenizer,
-                          TrainingArguments)
+from transformers import AutoModelForCausalLM, AutoTokenizer
 from trl import SFTConfig, SFTTrainer
 
 try:
