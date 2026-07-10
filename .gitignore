@@ -12,8 +12,7 @@ plan.md
 # ad-hoc local validation scratch (container run inputs/outputs, sampled subsets)
 /in/
 /in19/
-/out19/
-/out107/
+/out*/
 eval/tasks/practice19.jsonl
 # fine-tune artifacts (synthetic dataset, trained weights) -- large/regenerable
 train/data/
