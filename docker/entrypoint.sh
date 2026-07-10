@@ -11,6 +11,31 @@
 #            and CHEAPROUTE_* overrides.
 set -u
 
+# nproc reports the HOST's core count, not what a cgroup quota (e.g. the
+# judge's `--cpus=2`) actually grants this container -- spawning nproc
+# threads under a tighter quota just adds scheduling contention and makes
+# CPU-bound llama.cpp inference slower, not faster.
+_effective_cpus() {
+    local quota period n
+    if [ -r /sys/fs/cgroup/cpu.max ]; then
+        read -r quota period < /sys/fs/cgroup/cpu.max
+        if [ "$quota" != "max" ] && [ -n "${quota:-}" ] && [ -n "${period:-}" ] \
+           && [ "$period" -gt 0 ] 2>/dev/null; then
+            n=$(( (quota + period - 1) / period ))
+            [ "$n" -ge 1 ] && { echo "$n"; return; }
+        fi
+    fi
+    if [ -r /sys/fs/cgroup/cpu/cpu.cfs_quota_us ] && [ -r /sys/fs/cgroup/cpu/cpu.cfs_period_us ]; then
+        quota=$(cat /sys/fs/cgroup/cpu/cpu.cfs_quota_us)
+        period=$(cat /sys/fs/cgroup/cpu/cpu.cfs_period_us)
+        if [ "${quota:-0}" -gt 0 ] 2>/dev/null && [ "${period:-0}" -gt 0 ] 2>/dev/null; then
+            n=$(( (quota + period - 1) / period ))
+            [ "$n" -ge 1 ] && { echo "$n"; return; }
+        fi
+    fi
+    nproc
+}
+
 MODEL_PATH="${LOCAL_MODEL_PATH:-/models/local.gguf}"
 PORT="${LLAMA_PORT:-8000}"
 
@@ -18,9 +43,9 @@ if [ "${SKIP_LOCAL:-0}" != "1" ] && [ -f "$MODEL_PATH" ]; then
     echo "[entrypoint] starting llama-server (${MODEL_PATH}) on :${PORT}" >&2
     /opt/llama/llama-server -m "$MODEL_PATH" \
         --host 127.0.0.1 --port "$PORT" \
-        -c "${LLAMA_CTX:-16384}" \
-        --parallel "${LLAMA_PARALLEL:-4}" \
-        -t "${LLAMA_THREADS:-$(nproc)}" \
+        -c "${LLAMA_CTX:-8192}" \
+        --parallel "${LLAMA_PARALLEL:-2}" \
+        -t "${LLAMA_THREADS:-$(_effective_cpus)}" \
         ${LLAMA_EXTRA_ARGS:-} >&2 &
 
     # <=50 x 1s: leaves headroom inside the 60-second readiness requirement.

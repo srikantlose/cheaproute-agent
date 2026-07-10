@@ -50,7 +50,8 @@ ENV CHEAPROUTE_LOCAL_BACKEND=openai \
     CHEAPROUTE_ROUTING_MODE=${ROUTING_MODE} \
     CHEAPROUTE_ADAPTER=batch \
     CHEAPROUTE_LOG_PATH=/output/decisions.jsonl \
-    LOCAL_MODEL_PATH=/models/local.gguf
+    LOCAL_MODEL_PATH=/models/local.gguf \
+    CHEAPROUTE_BATCH_WORKERS=2
 
 COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
