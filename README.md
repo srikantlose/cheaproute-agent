@@ -230,7 +230,7 @@ docker push srikantlose/cheaproute-agent:remote-only
   toward accuracy and costs zero toward the token score per the official
   clarification); `:remote-only` stays published as an emergency-fallback
   tag only.
-- **Demo video**: _link TBD_
+- **Demo video**: https://youtu.be/0DyU9TXzGb0
 - **Slide deck**: _link TBD_
 
 ## License
