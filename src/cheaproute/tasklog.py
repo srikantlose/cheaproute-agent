@@ -15,6 +15,11 @@ class DecisionLogger:
         if self.path:
             try:
                 self.path.parent.mkdir(parents=True, exist_ok=True)
+                # Fresh log per process: per-task writes below append (a crash
+                # mid-run keeps its partial log), but without this truncation
+                # every run against the same mounted /output piles its rows
+                # onto the previous run's file.
+                self.path.write_text("", encoding="utf-8")
             except OSError:
                 self.path = None  # unwritable filesystem: keep stderr only
 
