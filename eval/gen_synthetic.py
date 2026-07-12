@@ -99,24 +99,37 @@ CATEGORIES: dict[str, dict] = {
         "count": 300,
         "grader": "contains",
         "instructions": (
-            "Generate sentiment-classification tasks: a short review or "
-            "statement to classify as positive, negative, or (sometimes) "
-            "mixed/neutral -- include some genuinely mixed cases (e.g. "
-            "'The battery life is great, but the screen scratches too "
-            "easily.'). `expected` is the single correct label word."
+            "Generate sentiment-classification tasks. Each `task` MUST be "
+            "phrased exactly like: \"Classify the sentiment of this review "
+            "as positive or negative: '<review text>'\" -- invent a new "
+            "review/statement each time (a review can mention one minor "
+            "downside/upside as long as the OVERALL sentiment is "
+            "unambiguous -- do not invent genuinely 50/50 mixed cases, "
+            "since the classifier only supports a binary label). "
+            "`expected` is the single correct label word, either "
+            "\"positive\" or \"negative\"."
         ),
-        "example_schema": '{"type": "sentiment", "task": "...", '
-                          '"expected": "mixed", "grader": "contains"}',
+        "example_schema": '{"type": "sentiment", "task": "Classify the '
+                          'sentiment of this review as positive or '
+                          'negative: \'...\'", "expected": "positive", '
+                          '"grader": "contains"}',
     },
     "summarization": {
-        "count": 250,
+        "count": 300,
         "grader": "word_limit",
         "instructions": (
             "Generate summarization tasks: a short passage (3-6 sentences, "
             "invent realistic content) plus an instruction to summarize it "
-            "in exactly one sentence or under N words. `expected` is "
-            "{\"max_words\": N, \"any_of\": [2-4 keywords a correct summary "
-            "would very likely include]}."
+            "in exactly one sentence or under N words. Give the model "
+            "realistic room to comply: if the instruction is a plain "
+            "'in one sentence' with no explicit word count, set "
+            "`max_words` to 30-40 (a real one-sentence summary of a few "
+            "facts routinely runs 25-35 words); only use a tight `max_words` "
+            "like 15-22 when the task text ITSELF states an explicit count "
+            "(e.g. 'in 20 words or fewer'), matching that count plus a "
+            "couple words of slack. `expected` is {\"max_words\": N, "
+            "\"any_of\": [2-4 keywords a correct summary would very likely "
+            "include]}."
         ),
         "example_schema": '{"type": "summarization", "task": "Summarize the '
                           'following in exactly one sentence: <passage>", '
@@ -125,7 +138,7 @@ CATEGORIES: dict[str, dict] = {
                           '"grader": "word_limit"}',
     },
     "ner": {
-        "count": 150,
+        "count": 280,
         "grader": "contains_all",
         "instructions": (
             "Generate named-entity-recognition tasks: a sentence with "
@@ -140,7 +153,9 @@ CATEGORIES: dict[str, dict] = {
                           '"berlin"], "grader": "contains_all"}',
     },
     "code_debug": {
-        "count": 200,
+        "count": 400,
+        "batch_size": 6,
+        "max_tokens": 6000,
         "grader": "py_exec",
         "instructions": (
             "Generate Python code-debugging tasks: a short function with a "
@@ -159,7 +174,10 @@ CATEGORIES: dict[str, dict] = {
                           'assert get_max([2,2]) == 2", "grader": "py_exec"}',
     },
     "logic": {
-        "count": 300,
+        "count": 1200,
+        "batch_size": 10,
+        "max_tokens": 6000,
+        "temperature": 0.55,
         "grader": "contains",
         "instructions": (
             "Generate logical/deductive-reasoning puzzles where all given "
@@ -172,7 +190,9 @@ CATEGORIES: dict[str, dict] = {
                           '"expected": "sam", "grader": "contains"}',
     },
     "code_gen": {
-        "count": 200,
+        "count": 400,
+        "batch_size": 6,
+        "max_tokens": 6000,
         "grader": "py_exec",
         "instructions": (
             "Generate code-generation specs: a clear description of a "
@@ -242,7 +262,8 @@ def _generate_batch(api_key: str, category: str, spec: dict,
     )
     try:
         raw = _fireworks_chat(api_key, _GEN_SYSTEM, prompt,
-                              max_tokens=4000, temperature=0.9)
+                              max_tokens=spec.get("max_tokens", 4000),
+                              temperature=spec.get("temperature", 0.9))
         items = json.loads(_strip_json_fences(raw))
         if not isinstance(items, list):
             return []
@@ -337,6 +358,12 @@ def _answer_task(api_key: str, item: dict) -> dict | None:
     extracted = extract_answer(ttype, raw_answer, extract_final)
     grade_task = dict(item)
     grade_task["grader"] = item.get("grader", "exact")
+    if item["type"] == "summarization" and isinstance(item.get("expected"), dict):
+        # Pass-1's `any_of` keywords are the teacher's own guess at pass-1
+        # time about likely phrasing; a differently-worded but equally
+        # correct pass-2 summary shouldn't be rejected as an SFT example
+        # for missing that exact word. Word-limit compliance still gates.
+        grade_task["expected"] = {"max_words": item["expected"].get("max_words")}
     if not grade(grade_task, extracted):
         return None
 
@@ -359,6 +386,13 @@ def main() -> int:
     ap.add_argument("--gen-batch-size", type=int, default=20)
     ap.add_argument("--workers", type=int, default=8)
     ap.add_argument("--practice", default="eval/tasks/practice.jsonl")
+    ap.add_argument("--categories", default=None,
+                    help="comma-separated subset of CATEGORIES to run "
+                         "(default: all) -- lets a single category be "
+                         "(re)run without repeating the whole pipeline")
+    ap.add_argument("--append", action="store_true",
+                    help="append to existing synthetic_tasks.jsonl/sft.jsonl "
+                         "instead of overwriting (default: overwrite)")
     args = ap.parse_args()
 
     api_key = os.environ.get("FIREWORKS_API_KEY", "")
@@ -372,55 +406,64 @@ def main() -> int:
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # ---- Pass 1: generate + filter -----------------------------------
-    all_raw: list[dict] = []
-    for category, spec in CATEGORIES.items():
-        target = args.per_category or spec["count"]
-        n_batches = max(1, -(-target // args.gen_batch_size))  # ceil
-        print(f"[gen] {category}: requesting {n_batches} batches "
-              f"({args.gen_batch_size} each, target {target})", file=sys.stderr)
-        batch_items: list[dict] = []
-        with ThreadPoolExecutor(max_workers=args.workers) as pool:
-            futs = [pool.submit(_generate_batch, api_key, category, spec,
-                               args.gen_batch_size, b * args.gen_batch_size)
-                   for b in range(n_batches)]
-            for fut in as_completed(futs):
-                batch_items.extend(fut.result())
-        kept = _validate_and_filter(batch_items, practice)
-        print(f"[gen] {category}: {len(batch_items)} raw -> {len(kept)} "
-              f"after validation/decontamination", file=sys.stderr)
-        all_raw.extend(kept)
+    categories = CATEGORIES
+    if args.categories:
+        wanted = [c.strip() for c in args.categories.split(",") if c.strip()]
+        categories = {c: CATEGORIES[c] for c in wanted}
 
     raw_path = out_dir / "synthetic_tasks.jsonl"
-    with open(raw_path, "w", encoding="utf-8") as f:
-        for item in all_raw:
-            f.write(json.dumps(item, ensure_ascii=False) + "\n")
+    sft_path = out_dir / "sft.jsonl"
+    file_mode = "a" if args.append else "w"
+
+    # ---- Pass 1: generate + filter, streamed to disk per category -----
+    # Written incrementally (not batched into one big end-of-run write) so
+    # an interrupted run (background-task teardown, pod timeout, etc.)
+    # keeps everything completed so far instead of losing the whole pass.
+    all_raw: list[dict] = []
+    with open(raw_path, file_mode, encoding="utf-8") as raw_f:
+        for category, spec in categories.items():
+            target = args.per_category or spec["count"]
+            batch_size = spec.get("batch_size", args.gen_batch_size)
+            n_batches = max(1, -(-target // batch_size))  # ceil
+            print(f"[gen] {category}: requesting {n_batches} batches "
+                  f"({batch_size} each, target {target})", file=sys.stderr)
+            batch_items: list[dict] = []
+            with ThreadPoolExecutor(max_workers=args.workers) as pool:
+                futs = [pool.submit(_generate_batch, api_key, category, spec,
+                                   batch_size, b * batch_size)
+                       for b in range(n_batches)]
+                for fut in as_completed(futs):
+                    batch_items.extend(fut.result())
+            kept = _validate_and_filter(batch_items, practice)
+            print(f"[gen] {category}: {len(batch_items)} raw -> {len(kept)} "
+                  f"after validation/decontamination", file=sys.stderr)
+            for item in kept:
+                raw_f.write(json.dumps(item, ensure_ascii=False) + "\n")
+            raw_f.flush()
+            all_raw.extend(kept)
     print(f"[gen] wrote {len(all_raw)} candidate tasks -> {raw_path}",
           file=sys.stderr)
 
     # ---- Pass 2: answer with production prompts, keep grader-passing --
-    sft_examples: list[dict] = []
-    with ThreadPoolExecutor(max_workers=args.workers) as pool:
-        futs = [pool.submit(_answer_task, api_key, item) for item in all_raw]
-        for i, fut in enumerate(as_completed(futs)):
-            result = fut.result()
-            if result:
-                sft_examples.append(result)
-            if (i + 1) % 200 == 0:
-                print(f"[answer] {i + 1}/{len(all_raw)} processed, "
-                      f"{len(sft_examples)} kept so far", file=sys.stderr)
-
-    sft_path = out_dir / "sft.jsonl"
-    with open(sft_path, "w", encoding="utf-8") as f:
-        for ex in sft_examples:
-            f.write(json.dumps(ex, ensure_ascii=False) + "\n")
-
+    # Also streamed: each accepted example is flushed as soon as it's ready.
     by_type: dict[str, int] = {}
-    for ex in sft_examples:
-        t = ex["meta"]["type"]
-        by_type[t] = by_type.get(t, 0) + 1
-    print(f"\n=== {len(sft_examples)} SFT examples -> {sft_path} ===",
-          file=sys.stderr)
+    kept_count = 0
+    with open(sft_path, file_mode, encoding="utf-8") as sft_f:
+        with ThreadPoolExecutor(max_workers=args.workers) as pool:
+            futs = [pool.submit(_answer_task, api_key, item) for item in all_raw]
+            for i, fut in enumerate(as_completed(futs)):
+                result = fut.result()
+                if result:
+                    sft_f.write(json.dumps(result, ensure_ascii=False) + "\n")
+                    sft_f.flush()
+                    kept_count += 1
+                    t = result["meta"]["type"]
+                    by_type[t] = by_type.get(t, 0) + 1
+                if (i + 1) % 200 == 0:
+                    print(f"[answer] {i + 1}/{len(all_raw)} processed, "
+                          f"{kept_count} kept so far", file=sys.stderr)
+
+    print(f"\n=== {kept_count} SFT examples -> {sft_path} ===", file=sys.stderr)
     for t in sorted(by_type):
         print(f"  {t:<14} {by_type[t]}", file=sys.stderr)
     return 0
