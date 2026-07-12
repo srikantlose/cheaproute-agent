@@ -231,7 +231,7 @@ docker push srikantlose/cheaproute-agent:remote-only
   clarification); `:remote-only` stays published as an emergency-fallback
   tag only.
 - **Demo video**: https://youtu.be/0DyU9TXzGb0
-- **Slide deck**: _link TBD_
+- **Slide deck**: https://gamma.app/docs/A-Cost-Aware-LLM-Routing-Agent-vw5manpjkw1gv5r
 
 ## License
 
