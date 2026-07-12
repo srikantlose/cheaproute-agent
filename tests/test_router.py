@@ -134,3 +134,44 @@ def test_raising_logger_does_not_crash_route():
     d = router.route(Task(id="t10", text="What is 12 + 30?"))
     assert d.route == "local"
     assert d.answer == "42"
+
+
+class SpyLocal:
+    """Wraps MockLocalClient to record the kwargs of every generate() call,
+    so tests can see whether a rescue attempt fired and what timeout it got."""
+
+    def __init__(self):
+        self._inner = MockLocalClient()
+        self.calls: list[dict] = []
+
+    def generate(self, *a, **k):
+        self.calls.append(k)
+        return self._inner.generate(*a, **k)
+
+
+def test_rescue_skipped_when_deadline_already_exhausted():
+    # remote_only mode escalates immediately with no prior local attempt, so
+    # by the time the remote failure is caught almost no time has elapsed --
+    # a task_deadline_s of 0 means the rescue call must be skipped entirely
+    # rather than granted a fresh, uncapped local.timeout_s.
+    local = SpyLocal()
+    router = Router(make_cfg(mode="remote_only", task_deadline_s=0.0),
+                    local, MockRemoteClient(fail=True))
+    d = router.route(Task(id="t11", text="What is 12 + 30?"))
+    assert d.route == "remote_failed_local"
+    assert d.answer == "unknown"
+    assert local.calls == []  # no doomed rescue call attempted
+
+
+def test_rescue_bounds_timeout_to_remaining_deadline():
+    # With deadline headroom, the rescue call still fires, but it must be
+    # capped to what's left of task_deadline_s -- not a fresh local.timeout_s
+    # (15s) stacked on top of whatever the failed remote call already cost.
+    local = SpyLocal()
+    router = Router(make_cfg(mode="remote_only", task_deadline_s=5.0),
+                    local, MockRemoteClient(fail=True))
+    d = router.route(Task(id="t12", text="What is 12 + 30?"))
+    assert d.route == "remote_failed_local"
+    assert len(local.calls) == 1
+    timeout_s = local.calls[0].get("timeout_s")
+    assert timeout_s is not None and 0 < timeout_s <= 5.0

@@ -38,7 +38,7 @@ class Router:
     def route(self, task: Task) -> Decision:
         t0 = time.time()
         try:
-            decision = self._route_inner(task)
+            decision = self._route_inner(task, t0)
         except Exception:  # absolute last line of defense
             decision = Decision(
                 task_id=task.id, route="error", answer="unknown",
@@ -54,7 +54,7 @@ class Router:
 
     # -- internals ---------------------------------------------------------
 
-    def _route_inner(self, task: Task) -> Decision:
+    def _route_inner(self, task: Task, t0: float) -> Decision:
         ttype = classify(task.text)
         prof = profile_for(ttype)
 
@@ -63,7 +63,7 @@ class Router:
                                   local_conf=0.0,
                                   signals={"task_type": ttype,
                                            "mode": "remote_only"},
-                                  tokens=(0, 0))
+                                  tokens=(0, 0), t0=t0)
 
         local_answer, conf, signals, tin, tout, local_error = \
             self.local_candidate(task.text, ttype, prof)
@@ -74,7 +74,7 @@ class Router:
                                   local_conf=0.0,
                                   signals={"task_type": ttype,
                                            "local_error": local_error},
-                                  tokens=(0, 0))
+                                  tokens=(0, 0), t0=t0)
 
         if conf >= self.cfg["routing"]["threshold"]:
             return Decision(
@@ -84,7 +84,7 @@ class Router:
                 local_tokens_in=tin, local_tokens_out=tout,
             )
         return self._escalate(task, ttype, prof, local_answer, conf, signals,
-                              (tin, tout))
+                              (tin, tout), t0=t0)
 
     def local_candidate(self, task_text: str, ttype: str, prof: TypeProfile
                         ) -> tuple[str, float, dict, int, int, str | None]:
@@ -149,7 +149,7 @@ class Router:
 
     def _escalate(self, task: Task, ttype: str, prof: TypeProfile,
                   local_answer: str, local_conf: float,
-                  signals: dict, tokens: tuple[int, int]) -> Decision:
+                  signals: dict, tokens: tuple[int, int], t0: float) -> Decision:
         tin, tout = tokens
         try:
             remote = self.remote.generate(
@@ -179,8 +179,10 @@ class Router:
             # best remaining move. In remote_only mode no local sample exists
             # yet, so take a single greedy one now. Never crash, never hang.
             if not local_answer:
+                remaining = (self.cfg["routing"].get("task_deadline_s", 28)
+                             - (time.time() - t0))
                 local_answer, ltin, ltout = self._local_last_resort(
-                    task.text, ttype, prof)
+                    task.text, ttype, prof, remaining)
                 tin, tout = tin + ltin, tout + ltout
             return Decision(
                 task_id=task.id, route="remote_failed_local",
@@ -191,14 +193,26 @@ class Router:
                 error=f"remote escalation failed: {exc}",
             )
 
-    def _local_last_resort(self, prompt: str, ttype: str,
-                           prof: TypeProfile) -> tuple[str, int, int]:
-        """One greedy local sample, best-effort: failure returns no answer."""
+    # Minimum time left worth attempting one more local generate() call for;
+    # below this a rescue attempt would almost certainly be cut off anyway
+    # and just burns time better spent returning "unknown" within budget.
+    _MIN_RESCUE_S = 3.0
+
+    def _local_last_resort(self, prompt: str, ttype: str, prof: TypeProfile,
+                           remaining_s: float) -> tuple[str, int, int]:
+        """One greedy local sample, best-effort: failure returns no answer.
+        Bounded to whatever's left of the per-task deadline (not a fresh
+        `local.timeout_s`) so a stalled first local sample followed by a
+        remote failure can't stack two uncapped timeouts and blow past the
+        judge's 30s/request limit -- see routing.task_deadline_s."""
+        if remaining_s < self._MIN_RESCUE_S:
+            return "", 0, 0
         try:
             r = self.local.generate(
                 prompt, temperature=0.0,
                 system_prompt=f"You are a careful assistant. {prof.local_style}",
                 max_tokens=prof.local_max_tokens,
+                timeout_s=remaining_s,
             )
             return (extract_answer(ttype, r.text, extract_final),
                     r.tokens_in, r.tokens_out)

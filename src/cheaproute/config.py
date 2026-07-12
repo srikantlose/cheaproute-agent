@@ -52,6 +52,13 @@ _DEFAULTS: dict[str, Any] = {
         # kept solely as a fallback when the remote API is unreachable.
         "mode": "local_first",
         "threshold": 0.02,
+        # Wall-clock ceiling for one full route() call (local sampling +
+        # possible remote escalation + possible local rescue), mirroring the
+        # judge's <=30s/request rule with a couple seconds of margin. Exists
+        # so a stalled first local attempt followed by a remote failure can't
+        # stack a second uncapped local timeout on top and blow past 30s --
+        # see _local_last_resort's deadline-aware timeout.
+        "task_deadline_s": 28,
         "w_logprob": 0.45,
         "w_agreement": 0.40,
         "w_format": 0.15,

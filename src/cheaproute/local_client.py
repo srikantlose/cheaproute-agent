@@ -43,7 +43,8 @@ class OpenAICompatClient:
 
     def generate(self, prompt: str, temperature: float = 0.0,
                  seed: Optional[int] = None, system_prompt: Optional[str] = None,
-                 max_tokens: Optional[int] = None) -> GenResult:
+                 max_tokens: Optional[int] = None,
+                 timeout_s: Optional[float] = None) -> GenResult:
         payload = {
             "model": self.model,
             "messages": [
@@ -61,7 +62,7 @@ class OpenAICompatClient:
                 f"{self.base_url}/chat/completions",
                 json=payload,
                 headers={"Authorization": f"Bearer {self.api_key}"},
-                timeout=self.timeout_s,
+                timeout=timeout_s if timeout_s is not None else self.timeout_s,
             )
             resp.raise_for_status()
             data = resp.json()

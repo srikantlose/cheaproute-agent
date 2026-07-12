@@ -62,6 +62,14 @@ routing:
   # that still gives local failures somewhere to escalate to -- see
   # eval/results/threshold_curve.csv for the full sweep.
   threshold: 0.02
+  # Wall-clock ceiling for one full route() call (local sampling + possible
+  # remote escalation + possible local rescue). Mirrors the judge's <=30s/
+  # request rule with a couple seconds of margin: without this, a stalled
+  # first local sample followed by a remote failure stacks a second, fresh
+  # local timeout on top of the first and can land past 30s (observed:
+  # ~15s stalled sample + fast-failing remote + ~15s uncapped rescue call =
+  # 30.3s). See _local_last_resort in router.py.
+  task_deadline_s: 28
   # confidence = w_logprob*logprob_score + w_agreement*agreement + w_format*format_ok
   # (agreement weight is redistributed for free-form/single-sample tasks)
   w_logprob: 0.45
