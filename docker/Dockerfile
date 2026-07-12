@@ -47,10 +47,16 @@ RUN pip install --no-cache-dir .
 # Runtime defaults — the harness overrides behaviour via FIREWORKS_API_KEY,
 # FIREWORKS_BASE_URL and ALLOWED_MODELS; CHEAPROUTE_* knobs stay tunable.
 # ROUTING_MODE bakes the variant: local_first | remote_only.
+# ROUTING_THRESHOLD bakes the escalation threshold τ; default 0.02 matches
+# config.yaml (so a plain build is unchanged), raise it to trade remote tokens
+# for accuracy in threshold-variant submissions (e.g. --build-arg
+# ROUTING_THRESHOLD=0.82 → 97% on the practice sweep vs 93.5% at 0.02).
 ARG ROUTING_MODE=local_first
+ARG ROUTING_THRESHOLD=0.02
 ENV CHEAPROUTE_LOCAL_BACKEND=openai \
     CHEAPROUTE_REMOTE_BACKEND=fireworks \
     CHEAPROUTE_ROUTING_MODE=${ROUTING_MODE} \
+    CHEAPROUTE_ROUTING_THRESHOLD=${ROUTING_THRESHOLD} \
     CHEAPROUTE_ADAPTER=batch \
     CHEAPROUTE_LOG_PATH=/output/decisions.jsonl \
     LOCAL_MODEL_PATH=/models/local.gguf \
