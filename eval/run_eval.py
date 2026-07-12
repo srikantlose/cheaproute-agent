@@ -129,7 +129,7 @@ def _collect_both(router: Router, cfg: dict, task: Task, t: dict):
     against numbers production never produces."""
     ttype = classify(task.text)
     prof = profile_for(ttype)
-    local_answer, conf, _signals, _tin, _tout, _local_err = \
+    local_answer, conf, signals, _tin, _tout, _local_err = \
         router.local_candidate(task.text, ttype, prof)
 
     try:
@@ -145,7 +145,12 @@ def _collect_both(router: Router, cfg: dict, task: Task, t: dict):
 
     local_ok = grade(t, local_answer)
     remote_ok = grade(t, remote_answer) if remote_answer is not None else False
-    would_route = "local" if conf >= cfg["routing"]["threshold"] else "remote"
+    # Router._route_inner vetoes the gate outright on a truncated/empty local
+    # answer (format_ok == 0) -- mirror it here so the tuner cache reflects
+    # what production would actually route.
+    format_veto = signals.get("format_ok", 0.0) <= 0.0
+    would_route = ("local" if conf >= cfg["routing"]["threshold"]
+                   and not format_veto else "remote")
     routed_ok = local_ok if would_route == "local" else remote_ok
 
     row = {"id": task.id, "type": t.get("type"), "route": would_route,
@@ -154,7 +159,7 @@ def _collect_both(router: Router, cfg: dict, task: Task, t: dict):
            "remote_tokens": remote_tokens if would_route == "remote" else 0,
            "error": remote_err}
     cache_row = {"id": task.id, "type": t.get("type"),
-                 "confidence": round(conf, 4),
+                 "confidence": round(conf, 4), "format_veto": format_veto,
                  "local_answer": local_answer, "local_correct": local_ok,
                  "remote_answer": remote_answer, "remote_correct": remote_ok,
                  "remote_tokens": remote_tokens, "remote_error": remote_err}

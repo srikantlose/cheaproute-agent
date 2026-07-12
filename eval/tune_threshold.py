@@ -23,7 +23,9 @@ def sweep(cache: list[dict], taus: list[float]) -> list[dict]:
     for tau in taus:
         correct = tokens = local_n = 0
         for c in cache:
-            if c["confidence"] >= tau:
+            # .get(): caches collected before the format veto existed lack the
+            # key; treat those rows as un-vetoed, matching old behaviour.
+            if c["confidence"] >= tau and not c.get("format_veto"):
                 local_n += 1
                 correct += bool(c["local_correct"])
             else:

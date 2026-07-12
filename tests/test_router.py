@@ -91,13 +91,27 @@ class TruncatedLocal:
                          finish_reason="length")
 
 
-def test_truncated_local_output_lowers_confidence():
+def test_truncated_local_output_escalates_despite_high_confidence():
+    # format score is 0 for truncation; high agreement+logprob push the
+    # composite well past tau anyway, but a cut-off answer is known-bad --
+    # the format veto must force escalation regardless of the composite.
     remote = MockRemoteClient()
     router = Router(make_cfg(), TruncatedLocal(), remote)
     d = router.route(Task(id="t8", text="2 + 2?"))
-    # format score is 0 for truncation; with high agreement+logprob it may
-    # still pass, so assert the signal is present and zeroed
     assert d.signals.get("format_ok") == 0.0
+    assert d.signals.get("format_veto") is True
+    assert d.route == "remote"
+    assert d.answer == "REMOTE"
+
+
+def test_format_veto_with_remote_down_keeps_truncated_local_answer():
+    # The veto only redirects the gate; the never-crash fallback contract is
+    # unchanged -- if remote then fails, the truncated local answer (still
+    # better than nothing) comes back rather than "unknown".
+    router = Router(make_cfg(), TruncatedLocal(), MockRemoteClient(fail=True))
+    d = router.route(Task(id="t13", text="2 + 2?"))
+    assert d.route == "remote_failed_local"
+    assert d.answer == "blah"
 
 
 class RaisingLogger:

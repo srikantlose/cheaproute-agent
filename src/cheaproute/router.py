@@ -77,12 +77,22 @@ class Router:
                                   tokens=(0, 0), t0=t0)
 
         if conf >= self.cfg["routing"]["threshold"]:
-            return Decision(
-                task_id=task.id, route="local", answer=local_answer,
-                confidence=round(conf, 4), signals=signals,
-                local_answer=local_answer,
-                local_tokens_in=tin, local_tokens_out=tout,
-            )
+            if signals.get("format_ok", 0.0) <= 0.0:
+                # A truncated or empty local answer (format_ok == 0) is
+                # known-bad no matter how confident the token logprobs look.
+                # When agreement is unavailable the logprob weight alone can
+                # carry the composite past tau (seen: an answer cut off
+                # mid-markdown-list shipped at conf 0.74) -- veto the gate
+                # and escalate instead. Mirrored by the offline sweep in
+                # eval/run_eval.py + eval/tune_threshold.py.
+                signals["format_veto"] = True
+            else:
+                return Decision(
+                    task_id=task.id, route="local", answer=local_answer,
+                    confidence=round(conf, 4), signals=signals,
+                    local_answer=local_answer,
+                    local_tokens_in=tin, local_tokens_out=tout,
+                )
         return self._escalate(task, ttype, prof, local_answer, conf, signals,
                               (tin, tout), t0=t0)
 
