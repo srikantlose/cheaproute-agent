@@ -29,13 +29,12 @@ from pathlib import Path
 import torch
 from datasets import Dataset
 from peft import LoraConfig, get_peft_model
-from transformers import AutoModelForCausalLM, AutoTokenizer
-from trl import SFTConfig, SFTTrainer
-
-try:
-    from trl import DataCollatorForCompletionOnlyLM
-except ImportError:
-    DataCollatorForCompletionOnlyLM = None
+from transformers import (
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    Trainer,
+    TrainingArguments,
+)
 
 # Response templates per chat-template family, used to mask the loss to the
 # assistant turn only (completion-only loss). If a model's tokenizer doesn't
@@ -46,6 +45,50 @@ _RESPONSE_TEMPLATES = {
     "qwen": "<|im_start|>assistant\n",
     "llama": "<|start_header_id|>assistant<|end_header_id|>\n\n",
 }
+
+
+class _CompletionOnlyCollator:
+    """Pads a batch and masks the loss to tokens after the response marker
+    (e.g. "<start_of_turn>model\\n"), so training doesn't spend loss on
+    predicting the fixed system/user boilerplate.
+
+    This is what trl's SFTTrainer would have done for us via a completion-only
+    collator, but trl 1.x can't run on this pod's pinned PyTorch 2.3.1 (it
+    hard-requires transformers>=4.56.2, which in turn needs torch>=2.4), so we
+    drive transformers' plain Trainer directly and do the assistant-only
+    masking here. gemma's official chat template has no Jinja {% generation %}
+    block, so there's no auto-derived assistant mask to lean on anyway.
+
+    If response_template is None (marker not found in the tokenizer's
+    rendering), fall back to full-sequence loss -- pad tokens masked, every
+    real token trained -- rather than masking nothing meaningful."""
+
+    def __init__(self, tokenizer, response_template: str | None):
+        self.tokenizer = tokenizer
+        self.response_ids = (
+            tokenizer.encode(response_template, add_special_tokens=False)
+            if response_template is not None else None)
+
+    def __call__(self, examples: list[dict]) -> dict:
+        input_ids = [e["input_ids"] for e in examples]
+        batch = self.tokenizer.pad({"input_ids": input_ids}, return_tensors="pt")
+        labels = batch["input_ids"].clone()
+        labels[batch["input_ids"] == self.tokenizer.pad_token_id] = -100
+
+        if self.response_ids is not None:
+            resp_ids, resp_len = self.response_ids, len(self.response_ids)
+            for i, ids in enumerate(input_ids):
+                start = None
+                for j in range(len(ids) - resp_len + 1):
+                    if ids[j:j + resp_len] == resp_ids:
+                        start = j + resp_len
+                # If the marker isn't found in this row, leave it unmasked
+                # (train on the full sequence for that one example) rather than
+                # zeroing every label, which would silently waste the compute.
+                if start is not None:
+                    labels[i, :start] = -100
+        batch["labels"] = labels
+        return batch
 
 
 def _guess_family(model_id: str) -> str:
@@ -110,6 +153,17 @@ def main() -> int:
 
     print(f"[sft] base model: {args.base_model}")
     tokenizer = AutoTokenizer.from_pretrained(args.base_model)
+    if tokenizer.pad_token is None:
+        # gemma's base tokenizer has no dedicated pad token, and our collator
+        # (and tokenizer.pad within it) needs one to pad batches and mask the
+        # pad positions out of the loss. eos is the conventional stand-in.
+        tokenizer.pad_token = tokenizer.eos_token
+    # Right-pad for training. Gemma builds position_ids as a plain arange when
+    # none are passed, so left-padding would shift every real token's rotary
+    # position by the pad count and silently corrupt the objective; right
+    # padding keeps real tokens at positions 0..n-1 (pads, which are masked
+    # out of the loss, trail after). trl's SFTTrainer defaulted to this too.
+    tokenizer.padding_side = "right"
     model = AutoModelForCausalLM.from_pretrained(
         args.base_model, torch_dtype=torch.bfloat16, attn_implementation="eager")
 
@@ -125,8 +179,19 @@ def main() -> int:
         response_template = None
 
     dataset = load_sft_dataset(Path(args.data))
-    dataset = dataset.map(lambda ex: {
-        "text": render_example(tokenizer, ex["messages"])})
+    # Render each example through the model's own chat template, then tokenize
+    # to input_ids here (trl's SFTTrainer used to do this step internally; we
+    # drive plain Trainer now, so we own it). add_special_tokens=False because
+    # apply_chat_template already emits the leading <bos> as literal text --
+    # letting the tokenizer prepend another would double it. Drop
+    # "messages"/"meta" so only input_ids survive into the collator.
+    def _tokenize(ex: dict) -> dict:
+        text = render_example(tokenizer, ex["messages"])
+        return {"input_ids": tokenizer(
+            text, truncation=True, max_length=args.max_seq_len,
+            add_special_tokens=False)["input_ids"]}
+
+    dataset = dataset.map(_tokenize, remove_columns=["messages", "meta"])
     dataset = dataset.shuffle(seed=42)
     n_eval = min(args.eval_holdout, max(1, len(dataset) // 20))
     eval_ds = dataset.select(range(n_eval))
@@ -152,12 +217,11 @@ def main() -> int:
     print(f"[sft] trainable params: {n_trainable:,} / {n_total:,} "
           f"({100 * n_trainable / n_total:.2f}%)")
 
-    collator = None
-    if response_template and DataCollatorForCompletionOnlyLM is not None:
-        collator = DataCollatorForCompletionOnlyLM(
-            response_template, tokenizer=tokenizer)
+    # response_template is None when the marker wasn't found in the tokenizer's
+    # rendering; the collator handles that by falling back to full-sequence loss.
+    collator = _CompletionOnlyCollator(tokenizer, response_template)
 
-    sft_config = SFTConfig(
+    training_args = TrainingArguments(
         output_dir=args.out,
         num_train_epochs=args.epochs,
         per_device_train_batch_size=args.batch_size,
@@ -169,15 +233,18 @@ def main() -> int:
         logging_steps=10,
         eval_strategy="epoch",
         save_strategy="epoch",
-        max_seq_length=args.max_seq_len,
-        dataset_text_field="text",
+        # Our examples are pre-tokenized to "input_ids" and the collator reads
+        # that column directly, so keep Trainer from stripping it (its
+        # forward-signature-based column pruning would otherwise drop anything
+        # it doesn't recognize before the collator ever sees the batch).
+        remove_unused_columns=False,
         report_to=[],
     )
 
-    trainer = SFTTrainer(
-        model=model, args=sft_config,
+    trainer = Trainer(
+        model=model, args=training_args,
         train_dataset=train_ds, eval_dataset=eval_ds,
-        data_collator=collator, processing_class=tokenizer,
+        data_collator=collator, tokenizer=tokenizer,
     )
     trainer.train()
 
@@ -210,6 +277,20 @@ _SANITY_PROMPTS = [
 
 
 def _sanity_check(model, tokenizer) -> None:
+    # This runs only after the adapter is already saved, so it must never take
+    # the run down with it. On ROCm, gemma-3's default hybrid-cache generation
+    # auto-compiles the forward through inductor/Triton, which wants a HIP
+    # runtime lib (libamdhip64.so) that isn't always on the pod's library
+    # path -- so force the plain dynamic cache (no compile), let any residual
+    # inductor failure fall back to eager instead of raising, and guard each
+    # generation so one failure prints a note rather than aborting the rest.
+    import torch._dynamo
+    torch._dynamo.config.suppress_errors = True
+    try:
+        model.generation_config.cache_implementation = None
+    except Exception:
+        pass
+
     model.eval()
     for label, prompt in _SANITY_PROMPTS:
         messages = [
@@ -223,13 +304,17 @@ def _sanity_check(model, tokenizer) -> None:
         ]
         text = render_example(tokenizer, messages)
         inputs = tokenizer(text, return_tensors="pt").to(model.device)
-        with torch.no_grad():
-            out = model.generate(**inputs, max_new_tokens=128, do_sample=False)
-        gen = tokenizer.decode(out[0][inputs["input_ids"].shape[1]:],
-                               skip_special_tokens=True)
-        has_marker = ("answer:" in gen.lower()) or ("```" in gen)
-        flag = "OK" if has_marker else "MISSING ANSWER MARKER"
-        print(f"  [{label}] [{flag}] {gen.strip()[:200]!r}")
+        try:
+            with torch.no_grad():
+                out = model.generate(**inputs, max_new_tokens=128, do_sample=False)
+            gen = tokenizer.decode(out[0][inputs["input_ids"].shape[1]:],
+                                   skip_special_tokens=True)
+            has_marker = ("answer:" in gen.lower()) or ("```" in gen)
+            flag = "OK" if has_marker else "MISSING ANSWER MARKER"
+            print(f"  [{label}] [{flag}] {gen.strip()[:200]!r}")
+        except Exception as e:
+            print(f"  [{label}] [SKIPPED] generation failed on pod "
+                  f"({type(e).__name__}: {str(e)[:120]})")
     model.train()
 
 
