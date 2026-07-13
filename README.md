@@ -232,6 +232,10 @@ docker push srikantlose/cheaproute-agent:remote-only
   tag only.
 - **Demo video**: https://youtu.be/0DyU9TXzGb0
 - **Slide deck**: https://gamma.app/docs/A-Cost-Aware-LLM-Routing-Agent-vw5manpjkw1gv5r
+- **Interactive dashboard**: https://cheaproute-demo.vercel.app/ — charts, per-task
+  drill-down, and a threshold simulator over the 19-task evaluation run, plus a live
+  playground that runs the real classifier/confidence-gate logic in-browser against
+  any prompt you type (source: [cheaproute-demo](https://github.com/srikantlose/cheaproute-demo)).
 
 ## License
 
