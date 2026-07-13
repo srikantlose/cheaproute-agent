@@ -230,7 +230,7 @@ docker push srikantlose/cheaproute-agent:remote-only
   toward accuracy and costs zero toward the token score per the official
   clarification); `:remote-only` stays published as an emergency-fallback
   tag only.
-- **Demo video**: https://youtu.be/0DyU9TXzGb0
+- **Demo video**: https://youtu.be/HuCVRg_yZIA
 - **Slide deck**: https://gamma.app/docs/A-Cost-Aware-LLM-Routing-Agent-vw5manpjkw1gv5r
 - **Interactive dashboard**: https://cheaproute-demo.vercel.app/ — charts, per-task
   drill-down, and a threshold simulator over the 19-task evaluation run, plus a live
